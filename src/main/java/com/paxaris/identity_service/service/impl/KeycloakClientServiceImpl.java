@@ -2,9 +2,7 @@ package com.paxaris.identity_service.service.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.paxaris.identity_service.dto.RoleCreationRequest;
-import com.paxaris.identity_service.dto.SignupRequest;
-import com.paxaris.identity_service.dto.KeycloakConfig;
+import com.paxaris.identity_service.dto.*;
 import com.paxaris.identity_service.service.KeycloakClientService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -16,6 +14,8 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -66,6 +66,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
         }
     }
 
+
     @Override
     public Map<String, Object> getRealmToken(String realm,
                                              String username,
@@ -103,38 +104,36 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     }
 
 
-
-
     // ---------------- TOKEN ----------------
-    @Override
-    public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String clientSecret, String realm) {
-        log.info("Attempting to get token for realm '{}' and user '{}'", realm, username);
-        String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
-        log.debug("Token URL: {}", tokenUrl);
+        @Override
+        public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String clientSecret, String realm) {
+            log.info("Attempting to get token for realm '{}' and user '{}'", realm, username);
+            String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
+            log.debug("Token URL: {}", tokenUrl);
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("grant_type", "password");
-        formData.add("client_id", clientId);
-        if (clientSecret != null && !clientSecret.isBlank()) {
-            formData.add("client_secret", clientSecret);
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("grant_type", "password");
+            formData.add("client_id", clientId);
+            if (clientSecret != null && !clientSecret.isBlank()) {
+                formData.add("client_secret", clientSecret);
+            }
+            formData.add("username", username);
+            formData.add("password", password);
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
+                log.info("Successfully obtained token for user '{}' in realm '{}'", username, realm);
+                return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
+            } catch (Exception e) {
+                log.error("Failed to get token for realm {} and user {}: {}", realm, username, e.getMessage(), e);
+                throw new RuntimeException("Failed to get token", e);
+            }
         }
-        formData.add("username", username);
-        formData.add("password", password);
-
-        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
-
-        try {
-            ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
-            log.info("Successfully obtained token for user '{}' in realm '{}'", username, realm);
-            return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
-        } catch (Exception e) {
-            log.error("Failed to get token for realm {} and user {}: {}", realm, username, e.getMessage(), e);
-            throw new RuntimeException("Failed to get token", e);
-        }
-    }
 
     @Override
     public boolean validateToken(String realm, String token) {
@@ -527,46 +526,98 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     // ---------------- SIGNUP ----------------
     @Override
     public void signup(SignupRequest request) {
-        log.info("Starting new signup process.");
-        String masterToken =    getMasterToken();
+        log.info("🚀 Starting signup process for product '{}', realm '{}'",
+                request.getClientId(), request.getRealmName());
+
+        String masterToken = getMasterToken();
+        log.debug("✅ Master token retrieved successfully (length = {})",
+                masterToken != null ? masterToken.length() : 0);
 
         String realm = request.getRealmName() != null ? request.getRealmName() : "default-realm";
         String clientId = request.getClientId() != null ? request.getClientId() : "default-client";
 
-        // Create Realm
-        log.info("Step 1: Creating realm '{}'", realm);
-        createRealm(realm, masterToken);
+        try {
+            // Step 1: Create Realm
+            log.info("🧱 Step 1: Creating realm '{}'", realm);
+            createRealm(realm, masterToken);
+            log.info("✅ Realm '{}' created successfully", realm);
 
-        // Create Client
-        log.info("Step 2: Creating client '{}'", clientId);
-        String clientUUID = createClient(realm, clientId, request.isPublicClient(), masterToken);
+            // Step 2: Create Client
+            log.info("🧩 Step 2: Creating client '{}'", clientId);
+            String clientUUID = createClient(realm, clientId, request.isPublicClient(), masterToken);
+            log.info("✅ Client created successfully with ID: {}", clientUUID);
 
-        // Create Admin User
-        log.info("Step 3: Creating admin user '{}'", request.getAdminUser().getUsername());
-        Map<String, Object> userMap = new HashMap<>();
-        userMap.put("username", request.getAdminUser().getUsername());
-        userMap.put("email", request.getAdminUser().getEmail());
-        userMap.put("firstName", request.getAdminUser().getFirstName());
-        userMap.put("lastName", request.getAdminUser().getLastName());
-        userMap.put("enabled", true);
+            // Step 3: Create Admin User
+            log.info("👤 Step 3: Creating admin user '{}'", request.getAdminUser().getUsername());
 
-        Map<String, Object> credentials = Map.of(
-                "type", "password",
-                "value", request.getAdminUser().getPassword(),
-                "temporary", false
-        );
-        userMap.put("credentials", List.of(credentials));
+            Map<String, Object> userMap = new HashMap<>();
+            userMap.put("username", request.getAdminUser().getUsername());
+            userMap.put("email", request.getAdminUser().getEmail());
+            userMap.put("firstName", request.getAdminUser().getFirstName());
+            userMap.put("lastName", request.getAdminUser().getLastName());
+            userMap.put("enabled", true);
 
-        String userId = createUser(realm, masterToken, userMap);
+            Map<String, Object> credentials = Map.of(
+                    "type", "password",
+                    "value", request.getAdminUser().getPassword(),
+                    "temporary", false
+            );
+            userMap.put("credentials", List.of(credentials));
 
-        // Assign default admin roles to the new user
-        log.info("Step 4: Assigning default admin roles to the new user '{}'", request.getAdminUser().getUsername());
-        List<String> defaultRoles = List.of("create-client", "impersonation", "manage-realm", "manage-users");
-        for (String role : defaultRoles) {
-            assignRealmManagementRoleToUser(realm, userId, role, masterToken);
+            log.debug("🧾 User payload: {}", userMap);
+
+            String userId = createUser(realm, masterToken, userMap);
+            log.info("✅ Admin user created successfully with ID: {}", userId);
+
+            // Step 4: Assign default roles
+            log.info("🔑 Step 4: Assigning default admin roles to '{}'", request.getAdminUser().getUsername());
+            List<String> defaultRoles = List.of("create-client", "impersonation", "manage-realm", "manage-users");
+            for (String role : defaultRoles) {
+                assignRealmManagementRoleToUser(realm, userId, role, masterToken);
+                log.debug("➡️ Assigned realm-management role '{}'", role);
+            }
+            log.info("✅ Default admin roles assigned successfully.");
+
+            // Step 5: Send data to Project Management Service
+            log.info("📤 Step 5: Sending project info to Project Management Service...");
+
+            // Create UrlEntry
+            UrlEntry urlEntry = new UrlEntry();
+            urlEntry.setUrl(request.getUrl());
+            urlEntry.setUri(request.getUri());
+
+            // Create RoleRequest
+            RoleRequest roleRequest = new RoleRequest();
+            roleRequest.setRealmName(realm);
+            roleRequest.setProductName(clientId);
+            roleRequest.setRoleName("admin");
+            roleRequest.setUrls(List.of(urlEntry));
+
+            log.debug("📦 Payload to Project Manager: {}", roleRequest);
+
+            WebClient webClient = WebClient.builder()
+                    .baseUrl("http://project-manager:8088")
+                    .build();
+
+            webClient.post()
+                    .uri("/project/roles/save-or-update")
+                    .bodyValue(roleRequest)
+                    .retrieve()
+                    .toBodilessEntity()
+                    .doOnSubscribe(s -> log.info("🌐 Sending data to Project Manager..."))
+                    .doOnSuccess(r -> log.info("✅ Successfully stored data in Project Manager."))
+                    .doOnError(e -> log.error("❌ Error storing data in Project Manager: {}", e.getMessage(), e))
+                    .block();
+
+        } catch (Exception e) {
+            log.error("💥 Signup process failed: {}", e.getMessage(), e);
+            throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
-        log.info("Signup process completed successfully.");
+
+        log.info("🎉 Signup process completed for realm '{}'", realm);
     }
+
+
 
     // ---------------- UTILITY ----------------
     private String resolveUserId(String realm, String username, String token) {

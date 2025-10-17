@@ -89,6 +89,13 @@
 		</dependency>
 
 		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+
+		<dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
@@ -114,8 +121,8 @@
 					<to>
 						<image>devopspaxarisglobal/identity-service:latest</image>
 						<auth>
-							<username>devopspaxarisglobal</username>
-							<password>dckr_pat_l180WxWZYhCkZkHkTuxD8HD-s8g</password>
+<!--							<username>devopspaxarisglobal</username>-->
+<!--							<password>dckr_pat_l180WxWZYhCkZkHkTuxD8HD-s8g</password>-->
 						</auth>
 					</to>
 					<container>

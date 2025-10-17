@@ -20,4 +20,6 @@ public class SignupRequest {
         private String firstName;
         private String lastName;
     }
+    private String url;
+    private String uri;
 }
