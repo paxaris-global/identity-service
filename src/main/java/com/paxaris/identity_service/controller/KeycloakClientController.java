@@ -1,24 +1,46 @@
 package com.paxaris.identity_service.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.identity_service.dto.RoleCreationRequest;
+
 import com.paxaris.identity_service.dto.SignupRequest;
+import com.paxaris.identity_service.dto.UrlEntry;
+import com.paxaris.identity_service.service.DynamicJwtDecoder;
 import com.paxaris.identity_service.service.KeycloakClientService;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
-import java.util.Map;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 @RestController
-@RequestMapping("/keycloak")
+@RequestMapping("/")
 @RequiredArgsConstructor
 public class KeycloakClientController {
 
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final DynamicJwtDecoder jwtDecoder;
     private final KeycloakClientService clientService;
+    private final ObjectMapper objectMapper;
+
     private static final Logger logger = LoggerFactory.getLogger(KeycloakClientController.class);
     // ------------------- TOKEN ----------------------------------------------------------------------------------------------------------------------------
     @PostMapping("/token")
@@ -37,28 +59,123 @@ public class KeycloakClientController {
         }
     }
 
+
     @PostMapping("/{realm}/login")
     public ResponseEntity<Map<String, Object>> login(
             @PathVariable String realm,
-            @RequestParam String username,
-            @RequestParam String password,
-            @RequestParam String clientId,
-            @RequestParam(required = false) String clientSecret) {
+            @RequestBody Map<String, String> credentials) {
+
+        logger.info("🔹 Login request received for realm: {}", realm);
+        logger.info("🔹 Received credential keys: {}", credentials.keySet());
 
         try {
-            Map<String, Object> token = clientService.getRealmToken(
-                    realm, username, password, clientId, clientSecret
-            );
-            return ResponseEntity.ok(token);
+            String username = credentials.get("username");
+            String password = credentials.get("password");
+            String clientId = credentials.getOrDefault("client_id", "product-service");
+            String clientSecret = credentials.getOrDefault("client_secret", null);
+
+            logger.info("🔹 Authenticating user '{}' with clientId '{}'", username, clientId);
+
+            // Get Keycloak token
+            Map<String, Object> tokenMap = clientService.getMyRealmToken(username, password, clientId, clientSecret, realm);
+            logger.info("🔹 Keycloak response token map: {}", tokenMap);
+
+            String keycloakToken = (String) tokenMap.get("access_token");
+            if (keycloakToken == null) {
+                logger.warn("⚠️ Invalid credentials or no token returned by Keycloak");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Invalid credentials"));
+            }
+
+            // Return token only
+            Map<String, Object> response = new HashMap<>();
+            response.put("access_token", keycloakToken);
+            response.put("expires_in", tokenMap.get("expires_in"));
+            response.put("token_type", tokenMap.get("token_type"));
+
+            logger.info("✅ Returning Keycloak token to client: {}", keycloakToken);
+            return ResponseEntity.ok(response);
+
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of(
-                            "error", "Unauthorized",
-                            "message", e.getMessage()
-                    ));
+            logger.error("❌ Login failed: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Login failed", "message", e.getMessage()));
         }
     }
 
+    @GetMapping("/validate")
+    public ResponseEntity<Map<String, Object>> validateToken(
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authHeader) {
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "status", "INVALID",
+                            "message", "Authorization header missing or malformed"
+                    ));
+        }
+
+        String token = authHeader.substring(7).trim();
+
+        try {
+            Jwt decodedJwt = jwtDecoder.decode(token);
+            Map<String, Object> claims = decodedJwt.getClaims();
+
+            // --- Safe extraction of realm roles ---
+            Map<String, Object> realmAccess = claims.get("realm_access") instanceof Map ?
+                    (Map<String, Object>) claims.get("realm_access") : Map.of();
+            List<String> realmRoles = realmAccess.get("roles") instanceof List ?
+                    ((List<?>) realmAccess.get("roles")).stream()
+                            .map(Object::toString)
+                            .toList() : List.of();
+
+            // --- Safe extraction of client roles ---
+            Map<String, Object> resourceAccess = claims.get("resource_access") instanceof Map ?
+                    (Map<String, Object>) claims.get("resource_access") : Map.of();
+            List<String> clientRoles = new ArrayList<>();
+            for (Map.Entry<String, Object> entry : resourceAccess.entrySet()) {
+                if (!(entry.getValue() instanceof Map)) continue;
+                Map<String, Object> clientMap = (Map<String, Object>) entry.getValue();
+                if (clientMap.get("roles") instanceof List<?> rolesList) {
+                    rolesList.forEach(r -> clientRoles.add(r.toString()));
+                }
+            }
+
+            // Merge roles
+            List<String> allRoles = new ArrayList<>(realmRoles);
+            allRoles.addAll(clientRoles);
+
+            // Extract realm
+            String realm = claims.getOrDefault("iss", "").toString();
+            if (realm.contains("/realms/")) {
+                realm = realm.substring(realm.lastIndexOf("/realms/") + 8);
+            }
+
+            // Product = client_id
+            // Product = azp (Authorized Party)
+            String product = claims.getOrDefault("azp", "").toString();
+
+
+            // Debug log
+            System.out.println("🔹 Token validated. Realm: " + realm + ", Product: " + product + ", Roles: " + allRoles);
+
+            return ResponseEntity.ok(Map.of(
+                    "status", "VALID",
+                    "realm", realm,
+                    "product", product,
+                    "roles", allRoles
+            ));
+
+        } catch (Exception e) {
+            System.err.println("❌ Token validation failed: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of(
+                            "status", "INVALID",
+                            "message", "Token invalid or expired: " + e.getMessage()
+                    ));
+        }
+    }
 
 
     @GetMapping("/token/validate")
@@ -74,7 +191,7 @@ public class KeycloakClientController {
     // ------------------- SIGNUP -------------------
     @PostMapping("/signup")
     public ResponseEntity<String> signup(@RequestBody SignupRequest request) {
-        logger.info("Received signup request at Identity Service: {}", request); // log request
+        logger.info("Received signup request at Identity Service: {}", request);
         try {
             clientService.signup(request);
             logger.info("Signup completed successfully for realm: {}", request.getRealmName());
