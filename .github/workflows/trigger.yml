@@ -14,7 +14,7 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.GH_ACCESS_TOKEN }}
-          repository: yourusername/centralized-repo  # Change to your central repo
+          repository: paxaris-global/paxo
           event-type: build-image
           client-payload: |
             {
