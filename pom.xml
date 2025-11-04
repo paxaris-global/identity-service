@@ -121,8 +121,8 @@
 					<to>
 						<image>devopspaxarisglobal/identity-service:latest</image>
 						<auth>
-							<username>devopspaxarisglobal</username>
-							<password>dckr_pat_l180WxWZYhCkZkHkTuxD8HD-s8g</password>
+							<username>${env.DOCKER_USERNAME}</username>
+							<password>${env.DOCKER_PASSWORD}</password>
 						</auth>
 					</to>
 					<container>

@@ -238,10 +238,11 @@ public class KeycloakClientController {
                 ? authorizationHeader.substring(7)
                 : authorizationHeader;
 
-        clientService.createClient(realm, clientId, publicClient, token);
-        return ResponseEntity.ok("Client created successfully");
+        String uuid = clientService.createClient(realm, clientId, publicClient, token);
+        return ResponseEntity.ok("Client created successfully. UUID: " + uuid);
     }
-//-------------------------------------------------------------------------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/client/{realm}/{clientName}/uuid")
     public ResponseEntity<String> getClientUUID(
             @PathVariable String realm,
