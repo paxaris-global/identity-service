@@ -6,7 +6,6 @@
 	import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 	@SpringBootApplication
-	@EnableConfigurationProperties(KeycloakConfig.class)
 		public class identityService {
 
 		public static void main(String[] args) {
