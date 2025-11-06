@@ -3,6 +3,7 @@ package com.paxaris.identity_service.controller;
 import com.paxaris.identity_service.dto.RoleRequest;
 import com.paxaris.identity_service.dto.UrlEntry;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -22,6 +23,8 @@ import java.util.Map;
 public class AccessValidationController {
 
     private final JwtDecoder jwtDecoder;
+    @Value("${project.management.base-url}")
+    private String projectManagementBaseUrl;
 
     @PostMapping("/validate-access")
     public ResponseEntity<Boolean> validateAccess(@RequestBody ValidationRequest request) {
@@ -57,7 +60,7 @@ public class AccessValidationController {
                 roleRequest.setRoleName(roleName);
 
                 ResponseEntity<UrlEntry[]> pmResponse = restTemplate.postForEntity(
-                        "http://localhost:8088/project/roles/get-urls",
+                        projectManagementBaseUrl+"/project/roles/get-urls",
                         roleRequest,
                         UrlEntry[].class
                 );
