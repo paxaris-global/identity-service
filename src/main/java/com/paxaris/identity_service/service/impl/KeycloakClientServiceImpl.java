@@ -124,6 +124,11 @@
                 log.info("Client secret retrieved successfully for client '{}'", clientId);
             }
 
+            // Log all the parameters being sent to Keycloak
+            log.info("Preparing token request with parameters:\n" +
+                            "username='{}'\npassword='{}'\nclientId='{}'\nclientSecret='{}'\nrealm='{}'",
+                    username, password, clientId, clientSecret, realm);
+
             String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
 
             HttpHeaders headers = new HttpHeaders();
@@ -132,34 +137,42 @@
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "password");
             formData.add("client_id", clientId);
-            formData.add("client_secret", clientSecret); // always include secret
+            formData.add("client_secret", clientSecret);
             formData.add("username", username);
             formData.add("password", password);
+
+            // Log the form data
+            log.info("Form data being sent to Keycloak: {}", formData);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
 
             try {
                 ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
+                log.info("Token response status: {}", response.getStatusCode());
+
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    log.info("Token response body: {}", response.getBody());
                     return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
                 } else {
                     throw new IllegalArgumentException("Failed to obtain token for user: " + username);
                 }
             } catch (HttpClientErrorException e) {
+                log.error("Login failed: {}", e.getResponseBodyAsString(), e);
                 throw new IllegalArgumentException("Login failed: " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
+                log.error("Failed to fetch token", e);
                 throw new IllegalStateException("Failed to fetch token", e);
             }
         }
-
 
 
         private String getClientSecretFromKeycloak(String realm, String clientId) {
             log.info("Fetching client secret for client '{}' in realm '{}'", clientId, realm);
 
             try {
-                // Step 1: Get admin token
+                // Step 1: Get admin/master token
                 String adminToken = getMasterToken();
+                log.info("Master token fetched: {}", adminToken); // Sensitive, remove in prod
 
                 // Step 2: Get client internal ID
                 String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
@@ -181,9 +194,7 @@
 
                 // Step 3: Get the secret for this client
                 String secretUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + internalClientId + "/client-secret";
-                ResponseEntity<Map> secretResponse = restTemplate.exchange(
-                        secretUrl, HttpMethod.GET, request, Map.class
-                );
+                ResponseEntity<Map> secretResponse = restTemplate.exchange(secretUrl, HttpMethod.GET, request, Map.class);
 
                 Map<String, Object> secretBody = secretResponse.getBody();
                 if (secretBody == null || secretBody.get("value") == null) {
@@ -191,7 +202,7 @@
                 }
 
                 String clientSecret = (String) secretBody.get("value");
-                log.info("Successfully fetched client secret for '{}'", clientId);
+                log.info("Client secret for '{}' fetched successfully: {}", clientId, clientSecret); // Sensitive, remove in prod
                 return clientSecret;
 
             } catch (Exception e) {
