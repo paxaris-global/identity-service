@@ -9,7 +9,7 @@ public class SignupRequest {
 
     private String realmName;
     private String clientId;
-    private boolean publicClient = true;
+    private boolean publicClient = false;
     private AdminUser adminUser;
 
     @Data
