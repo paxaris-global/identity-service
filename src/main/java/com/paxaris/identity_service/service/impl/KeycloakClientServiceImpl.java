@@ -116,6 +116,9 @@
                 log.info("Client secret fetched successfully.");
             }
 
+            log.info("Using client secret: {}", clientSecret);
+
+
             // Step 2: Build token request
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
             log.debug("Token URL: {}", tokenUrl);
