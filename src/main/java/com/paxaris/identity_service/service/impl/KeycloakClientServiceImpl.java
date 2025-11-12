@@ -1,5 +1,5 @@
     package com.paxaris.identity_service.service.impl;
-    
+
     import com.fasterxml.jackson.core.type.TypeReference;
     import com.fasterxml.jackson.databind.ObjectMapper;
     import com.paxaris.identity_service.dto.*;
@@ -16,39 +16,39 @@
     import org.springframework.web.client.HttpClientErrorException;
     import org.springframework.web.client.RestTemplate;
     import org.springframework.web.reactive.function.client.WebClient;
-    
-    
+
+
     import java.util.*;
-    
+
     @Service
     @RequiredArgsConstructor
     public class KeycloakClientServiceImpl implements KeycloakClientService {
-    
+
         private static final Logger log = LoggerFactory.getLogger(KeycloakClientServiceImpl.class);
-    
+
         private final KeycloakConfig config;
         private final RestTemplate restTemplate;
         private final ObjectMapper objectMapper;
         @Value("${project.management.base-url}")
         private String projectManagementBaseUrl;
-    
+
         // This method is now private and used internally to avoid duplication
         private String getMasterToken() {
             log.info("Attempting to get master token from Keycloak...");
             String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
             log.debug("Master token URL: {}", tokenUrl);
-    
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-    
+
             MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
             body.add("grant_type", "password");
             body.add("client_id", "admin-cli");
             body.add("username", config.getAdminUsername());
             body.add("password", config.getAdminPassword());
-    
+
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(body, headers);
-    
+
             try {
                 ResponseEntity<Map> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, Map.class);
                 if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
@@ -65,20 +65,20 @@
                 throw new RuntimeException("Failed to connect to Keycloak token endpoint.", e);
             }
         }
-    
-    
+
+
         @Override
         public Map<String, Object> getRealmToken(String realm,
                                                  String username,
                                                  String password,
                                                  String clientId,
                                                  String clientSecret) {
-    
+
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
-    
+
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-    
+
             MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
             body.add("grant_type", "password");
             body.add("client_id", clientId);
@@ -87,41 +87,46 @@
             }
             body.add("username", username);
             body.add("password", password);
-    
+
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(body, headers);
-    
+
             try {
                 ResponseEntity<Map> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, Map.class);
-    
+
                 if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                     throw new RuntimeException("Failed to get token for realm " + realm);
                 }
-    
+
                 return response.getBody();
             } catch (HttpClientErrorException e) {
                 throw new RuntimeException("Login failed: " + e.getResponseBodyAsString(), e);
             }
         }
-    
-    
+
+
         // ---------------- TOKEN ----------------
         @Override
-        public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String clientSecret, String realm) {
-            log.info("Attempting to get token for realm '{}' and user '{}'", realm, username);
+        public Map<String, Object> getMyRealmToken(
+                String username,
+                String password,
+                String clientId,
+                String clientSecret,
+                String realm) {
 
-            // Step 1: If clientSecret is missing, fetch it from Keycloak
-            if (clientSecret == null || clientSecret.isBlank()) {
+            log.info("Attempting to get token for user '{}' in realm '{}'", username, realm);
+
+            // Automatically fetch client secret if confidential and not provided
+            if (!isPublicClient(clientId, realm) && (clientSecret == null || clientSecret.isBlank())) {
                 log.info("Client secret not provided. Fetching from Keycloak Admin API...");
                 clientSecret = getClientSecretFromKeycloak(realm, clientId);
-                log.info("Client secret fetched successfully.");
+                if (clientSecret == null || clientSecret.isBlank()) {
+                    throw new IllegalStateException("Client secret could not be retrieved for client: " + clientId);
+                }
+                log.info("Client secret retrieved successfully for client '{}'", clientId);
             }
 
-            log.info("Using client secret: {}", clientSecret);
-
-
-            // Step 2: Build token request
-            String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
-            log.debug("Token URL: {}", tokenUrl);
+            // Build token endpoint URL
+            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -129,80 +134,111 @@
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "password");
             formData.add("client_id", clientId);
-            formData.add("client_secret", clientSecret);
+
+            // Only add client_secret if client is confidential
+            if (!isPublicClient(clientId, realm)) {
+                formData.add("client_secret", clientSecret);
+            }
+
             formData.add("username", username);
             formData.add("password", password);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
 
-            // Step 3: Send request to Keycloak
             try {
                 ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    log.info("Successfully obtained token for user '{}' in realm '{}'", username, realm);
                     return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
                 } else {
-                    log.error("Failed to obtain token. Status code: {}", response.getStatusCode());
-                    throw new RuntimeException("Failed to obtain token for user: " + username);
+                    throw new IllegalArgumentException("Failed to obtain token for user: " + username);
                 }
+
             } catch (HttpClientErrorException e) {
-                log.error("Keycloak login failed: {}", e.getResponseBodyAsString(), e);
-                throw new RuntimeException("Login failed: " + e.getResponseBodyAsString(), e);
+                throw new IllegalArgumentException("Login failed: " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                log.error("Unexpected error while fetching token for user '{}': {}", username, e.getMessage(), e);
-                throw new RuntimeException("Failed to fetch token", e);
+                throw new IllegalStateException("Failed to fetch token", e);
+            }
+        }
+
+        private boolean isPublicClient(String clientId, String realm) {
+            try {
+                return this.isClientPublic(clientId, realm); // <-- use `this` instead of clientService
+            } catch (Exception e) {
+                log.warn("Failed to check if client '{}' is public. Assuming confidential client.", clientId);
+                return false;
             }
         }
 
 
+        public boolean isClientPublic(String clientId, String realm) {
+            try {
+                String token = getMasterToken();
+                String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
+                HttpHeaders headers = new HttpHeaders();
+                headers.setBearerAuth(token);
+
+                ResponseEntity<List> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), List.class);
+                if (response.getBody() != null && !response.getBody().isEmpty()) {
+                    Map<String, Object> clientData = (Map<String, Object>) response.getBody().get(0);
+                    return Boolean.TRUE.equals(clientData.get("publicClient"));
+                }
+            } catch (Exception e) {
+                log.warn("Error checking if client '{}' is public: {}", clientId, e.getMessage());
+            }
+            return false; // default to confidential if unknown
+        }
+
+
+
+
         private String getClientSecretFromKeycloak(String realm, String clientId) {
             log.info("Fetching client secret for client '{}' in realm '{}'", clientId, realm);
-    
+
             try {
                 // Step 1: Get admin token
                 String adminToken = getMasterToken();
-    
+
                 // Step 2: Get client internal ID
                 String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
                 HttpHeaders headers = new HttpHeaders();
                 headers.setBearerAuth(adminToken);
                 HttpEntity<Void> request = new HttpEntity<>(headers);
-    
+
                 ResponseEntity<List> clientsResponse = restTemplate.exchange(
                         clientsUrl, HttpMethod.GET, request, List.class
                 );
-    
+
                 if (clientsResponse.getBody() == null || clientsResponse.getBody().isEmpty()) {
                     throw new RuntimeException("Client not found in Keycloak for ID: " + clientId);
                 }
-    
+
                 Map<String, Object> clientData = (Map<String, Object>) clientsResponse.getBody().get(0);
                 String internalClientId = (String) clientData.get("id");
                 log.info("Found internal client ID: {}", internalClientId);
-    
+
                 // Step 3: Get the secret for this client
                 String secretUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + internalClientId + "/client-secret";
                 ResponseEntity<Map> secretResponse = restTemplate.exchange(
                         secretUrl, HttpMethod.GET, request, Map.class
                 );
-    
+
                 Map<String, Object> secretBody = secretResponse.getBody();
                 if (secretBody == null || secretBody.get("value") == null) {
                     throw new RuntimeException("Client secret not found for client ID: " + clientId);
                 }
-    
+
                 String clientSecret = (String) secretBody.get("value");
                 log.info("Successfully fetched client secret for '{}'", clientId);
                 return clientSecret;
-    
+
             } catch (Exception e) {
                 log.error("Failed to fetch client secret for '{}': {}", clientId, e.getMessage(), e);
                 throw new RuntimeException("Failed to fetch client secret for client " + clientId, e);
             }
         }
-    
-    
+
+
         @Override
         public boolean validateToken(String realm, String token) {
             log.info("Attempting to validate token for realm '{}'", realm);
@@ -226,7 +262,7 @@
                 return false;
             }
         }
-    
+
         // ---------------- REALM ----------------
         @Override
         public void createRealm(String realmName, String token) {
@@ -237,7 +273,7 @@
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(token);
-    
+
             try {
                 restTemplate.postForEntity(url, new HttpEntity<>(body, headers), String.class);
                 log.info("Realm '{}' created successfully.", realmName);
@@ -246,7 +282,7 @@
                 throw new RuntimeException("Failed to create realm: " + e.getMessage(), e);
             }
         }
-    
+
         @Override
         public List<Map<String, Object>> getAllRealms(String token) {
             log.info("Attempting to fetch all realms...");
@@ -254,7 +290,7 @@
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             HttpEntity<Void> entity = new HttpEntity<>(headers);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
                 log.info("Successfully fetched all realms.");
@@ -264,16 +300,16 @@
                 throw new RuntimeException("Failed to fetch realms", e);
             }
         }
-        
+
         // ---------------- CLIENT ----------------
         @Override
         public String createClient(String realm, String clientId, boolean isPublicClient, String token) {
             log.info("Attempting to create client '{}' in realm '{}'. Public client: {}", clientId, realm, isPublicClient);
-    
+
             // Correct Keycloak admin URL
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients";
             log.debug("Target Keycloak URL: {}", url);
-    
+
             // Prepare request body
             Map<String, Object> body = new HashMap<>();
             body.put("clientId", clientId);
@@ -283,7 +319,7 @@
             body.put("standardFlowEnabled", true);
             body.put("directAccessGrantsEnabled", true);
             body.put("authorizationServicesEnabled", true);
-    
+
             // Set client authenticator type based on public/confidential
             if (isPublicClient) {
                 body.put("clientAuthenticatorType", "client-id"); // public clients don't have secrets
@@ -293,26 +329,26 @@
                 body.put("clientAuthenticatorType", "client-secret");
                 body.put("serviceAccountsEnabled", true);
             }
-    
+
             // Prepare headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(token);
-    
+
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
-    
+
             try {
                 log.debug("Request Body: {}", body);
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-    
+
                 if (!response.getStatusCode().is2xxSuccessful()) {
                     log.error("Failed to create client. Status code: {}. Response body: {}", response.getStatusCode(), response.getBody());
                     throw new RuntimeException("Failed to create client with status code: " + response.getStatusCode());
                 }
-    
+
                 log.info("Client '{}' created successfully. Fetching UUID...", clientId);
                 return getClientUUID(realm, clientId, token);
-    
+
             } catch (HttpClientErrorException e) {
                 log.error("Client creation failed with status {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
                 throw new RuntimeException("Failed to create client. Keycloak responded with: " + e.getResponseBodyAsString(), e);
@@ -321,15 +357,15 @@
                 throw new RuntimeException("Failed to create client due to an unexpected error.", e);
             }
         }
-    
-    
+
+
         @Override
         public List<Map<String, Object>> getAllClients(String realm, String token) {
             log.info("Attempting to fetch all clients for realm '{}'", realm);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients";
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 log.info("Successfully fetched all clients for realm '{}'.", realm);
@@ -339,7 +375,7 @@
                 throw new RuntimeException("Failed to fetch clients", e);
             }
         }
-    
+
         @Override
         public String getClientSecret(String realm, String clientId, String token) {
             log.info("Attempting to get client secret for client '{}' in realm '{}'", clientId, realm);
@@ -347,7 +383,7 @@
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             HttpEntity<Void> entity = new HttpEntity<>(headers);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
                 Map<String, Object> map = objectMapper.readValue(response.getBody(), new TypeReference<>() {});
@@ -358,14 +394,14 @@
                 throw new RuntimeException("Failed to fetch client secret", e);
             }
         }
-    
+
         @Override
         public String getClientUUID(String realm, String clientName, String token) {
             log.info("Attempting to get UUID for client '{}' in realm '{}'", clientName, realm);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientName;
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                     url, HttpMethod.GET, new HttpEntity<>(headers),
                     new ParameterizedTypeReference<>() {}
@@ -378,14 +414,14 @@
             log.error("Client not found: {}", clientName);
             throw new RuntimeException("Client not found: " + clientName);
         }
-    
+
         @Override
         public String getClientId(String realm, String clientName, String token) {
             log.info("Attempting to get client ID for name '{}'", clientName);
             return getClientUUID(realm, clientName, token);
         }
-    
-    
+
+
         // ---------------- USER ----------------
         @Override
         public String createUser(String realm, String token, Map<String, Object> userPayload) {
@@ -396,10 +432,10 @@
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(token);  // <-- use provided token
-    
+
             try {
                 ResponseEntity<Void> response = restTemplate.postForEntity(url, new HttpEntity<>(userPayload, headers), Void.class);
-    
+
                 if (response.getStatusCode() == HttpStatus.CREATED) {
                     String location = response.getHeaders().getFirst("Location");
                     if (location != null) {
@@ -408,24 +444,24 @@
                         return userId;
                     }
                 }
-    
+
                 log.error("Failed to create user '{}' with status: {}", username, response.getStatusCode());
                 throw new RuntimeException("Failed to create user with status: " + response.getStatusCode());
-    
+
             } catch (Exception e) {
                 log.error("Failed to create user '{}': {}", username, e.getMessage(), e);
                 throw new RuntimeException("Failed to create user", e);
             }
         }
-    
-    
+
+
         @Override
         public List<Map<String, Object>> getAllUsers(String realm, String token) {
             log.info("Attempting to fetch all users for realm '{}'", realm);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/users";
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 log.info("Successfully fetched all users for realm '{}'.", realm);
@@ -435,20 +471,20 @@
                 throw new RuntimeException("Failed to fetch users", e);
             }
         }
-    
+
         // ---------------- ROLE ----------------
         @Override
         public void createClientRoles(String realm, String clientName, List<RoleCreationRequest> roleRequests, String token) {
             log.info("Attempting to create {} client roles for client '{}' in realm '{}'", roleRequests.size(), clientName, realm);
             String clientUUID = getClientUUID(realm, clientName, token);
             log.info("Client UUID for '{}' is '{}'", clientName, clientUUID);
-    
+
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + clientUUID + "/roles";
-    
+
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             headers.setContentType(MediaType.APPLICATION_JSON);
-    
+
             List<String> failedRoles = new ArrayList<>();
             for (RoleCreationRequest role : roleRequests) {
                 Map<String, Object> body = Map.of(
@@ -463,13 +499,13 @@
                     log.error("Failed to create role '{}': {}", role.getName(), e.getMessage());
                 }
             }
-    
+
             if (!failedRoles.isEmpty()) {
                 throw new RuntimeException("Failed to create roles: " + String.join(", ", failedRoles));
             }
         }
-    
-    
+
+
         @Override
         public void createRealmRole(String realm, String roleName, String clientId, String token) {
             log.info("Attempting to create realm role '{}' in realm '{}'", roleName, realm);
@@ -478,7 +514,7 @@
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(token);
-    
+
             try {
                 restTemplate.postForEntity(url, new HttpEntity<>(body, headers), String.class);
                 log.info("Realm role '{}' created successfully.", roleName);
@@ -486,7 +522,7 @@
                 log.error("Failed to create realm role '{}': {}", roleName, e.getMessage());
             }
         }
-    
+
         @Override
         public boolean createRole(String realm, String clientUUID, RoleCreationRequest role, String token) {
             log.info("Attempting to create role '{}' for client with UUID '{}' in realm '{}'", role.getName(), clientUUID, realm);
@@ -495,12 +531,12 @@
                 HttpHeaders headers = new HttpHeaders();
                 headers.setBearerAuth(token);
                 headers.setContentType(MediaType.APPLICATION_JSON);
-    
+
                 Map<String, Object> body = Map.of(
                         "name", role.getName(),
                         "description", role.getDescription()
                 );
-    
+
                 restTemplate.postForEntity(url, new HttpEntity<>(body, headers), String.class);
                 log.info("Role '{}' created successfully.", role.getName());
                 return true;
@@ -509,7 +545,7 @@
                 return false;
             }
         }
-    
+
         @Override
         public boolean updateRole(String realm, String clientUUID, String roleName, RoleCreationRequest role, String token) {
             log.info("Attempting to update role '{}' for client with UUID '{}' in realm '{}'", roleName, clientUUID, realm);
@@ -518,12 +554,12 @@
                 HttpHeaders headers = new HttpHeaders();
                 headers.setBearerAuth(token);
                 headers.setContentType(MediaType.APPLICATION_JSON);
-    
+
                 Map<String, Object> body = Map.of(
                         "name", role.getName(),
                         "description", role.getDescription()
                 );
-    
+
                 restTemplate.put(url, new HttpEntity<>(body, headers));
                 log.info("Role '{}' updated successfully.", roleName);
                 return true;
@@ -532,7 +568,7 @@
                 return false;
             }
         }
-    
+
         @Override
         public boolean deleteRole(String realm, String clientUUID, String roleName, String token) {
             log.info("Attempting to delete role '{}' for client with UUID '{}' in realm '{}'", roleName, clientUUID, realm);
@@ -540,7 +576,7 @@
                 String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + clientUUID + "/roles/" + roleName;
                 HttpHeaders headers = new HttpHeaders();
                 headers.setBearerAuth(token);
-    
+
                 restTemplate.exchange(url, HttpMethod.DELETE, new HttpEntity<>(headers), String.class);
                 log.info("Role '{}' deleted successfully.", roleName);
                 return true;
@@ -549,7 +585,7 @@
                 return false;
             }
         }
-    
+
         @Override
         public List<Map<String, Object>> getAllRoles(String realm, String clientId, String token) {
             log.info("Attempting to fetch all roles for client '{}' in realm '{}'", clientId, realm);
@@ -557,7 +593,7 @@
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + clientUUID + "/roles";
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 log.info("Successfully fetched all roles for client '{}'.", clientId);
@@ -567,7 +603,7 @@
                 throw new RuntimeException("Failed to fetch roles", e);
             }
         }
-    
+
         // ---------------- ROLE ASSIGN ----------------
         @Override
         public void assignClientRole(String realm, String username, String clientName, String roleName, String token) {
@@ -575,25 +611,25 @@
             String userId = resolveUserId(realm, username, token);
             String clientUUID = getClientUUID(realm, clientName, token);
             String roleId = getClientRoleId(realm, clientUUID, roleName, token);
-    
+
             // Perform assignment
             assignClientRoleToUser(realm, userId, clientUUID, roleId, roleName, token);
         }
-    
+
         @Override
         public void assignClientRoleToUser(String realm, String userId, String clientUUID, String roleId, String roleName, String token) {
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/users/" + userId + "/role-mappings/clients/" + clientUUID;
-    
+
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             headers.setContentType(MediaType.APPLICATION_JSON);
-    
+
             // Prepare role payload
             List<Map<String, Object>> roles = List.of(Map.of(
                     "id", roleId,
                     "name", roleName
             ));
-    
+
             try {
                 restTemplate.postForEntity(url, new HttpEntity<>(roles, headers), String.class);
                 log.info("Assigned role '{}' to user '{}' in client '{}'", roleName, userId, clientUUID);
@@ -602,54 +638,54 @@
                 throw new RuntimeException("Failed to assign client role: " + e.getMessage(), e);
             }
         }
-    
-    
+
+
         // ---------------- SIGNUP ----------------
         @Override
         public void signup(SignupRequest request) {
             log.info("🚀 Starting signup process for product '{}', realm '{}'",
                     request.getClientId(), request.getRealmName());
-    
+
             String masterToken = getMasterToken();
             log.debug("✅ Master token retrieved successfully (length = {})",
                     masterToken != null ? masterToken.length() : 0);
-    
+
             String realm = request.getRealmName() != null ? request.getRealmName() : "default-realm";
             String clientId = request.getClientId() != null ? request.getClientId() : "default-client";
-    
+
             try {
                 // Step 1: Create Realm
                 log.info("🧱 Step 1: Creating realm '{}'", realm);
                 createRealm(realm, masterToken);
                 log.info("✅ Realm '{}' created successfully", realm);
-    
+
                 // Step 2: Create Client
                 log.info("🧩 Step 2: Creating client '{}'", clientId);
                 String clientUUID = createClient(realm, clientId, request.isPublicClient(), masterToken);
                 log.info("✅ Client created successfully with ID: {}", clientUUID);
-    
+
                 // Step 3: Create Admin User
                 log.info("👤 Step 3: Creating admin user '{}'", request.getAdminUser().getUsername());
-    
+
                 Map<String, Object> userMap = new HashMap<>();
                 userMap.put("username", request.getAdminUser().getUsername());
                 userMap.put("email", request.getAdminUser().getEmail());
                 userMap.put("firstName", request.getAdminUser().getFirstName());
                 userMap.put("lastName", request.getAdminUser().getLastName());
                 userMap.put("enabled", true);
-    
+
                 Map<String, Object> credentials = Map.of(
                         "type", "password",
                         "value", request.getAdminUser().getPassword(),
                         "temporary", false
                 );
                 userMap.put("credentials", List.of(credentials));
-    
+
                 log.debug("🧾 User payload: {}", userMap);
-    
+
                 String userId = createUser(realm, masterToken, userMap);
                 log.info("✅ Admin user created successfully with ID: {}", userId);
-    
+
                 // Step 4: Assign default roles
                 log.info("🔑 Step 4: Assigning default admin roles to '{}'", request.getAdminUser().getUsername());
                 List<String> defaultRoles = List.of("create-client", "impersonation", "manage-realm", "manage-users");
@@ -658,28 +694,28 @@
                     log.debug("➡️ Assigned realm-management role '{}'", role);
                 }
                 log.info("✅ Default admin roles assigned successfully.");
-    
+
                 // Step 5: Send data to Project Management Service
                 log.info("📤 Step 5: Sending project info to Project Management Service...");
-    
+
                 // Create UrlEntry
                 UrlEntry urlEntry = new UrlEntry();
                 urlEntry.setUrl(request.getUrl());
                 urlEntry.setUri(request.getUri());
-    
+
                 // Create RoleRequest
                 RoleRequest roleRequest = new RoleRequest();
                 roleRequest.setRealmName(realm);
                 roleRequest.setProductName(clientId);
                 roleRequest.setRoleName("admin");
                 roleRequest.setUrls(List.of(urlEntry));
-    
+
                 log.debug("📦 Payload to Project Manager: {}", roleRequest);
-    
+
                 WebClient webClient = WebClient.builder()
                         .baseUrl(projectManagementBaseUrl)
                         .build();
-    
+
                 webClient.post()
                         .uri("/project/roles/save-or-update")
                         .bodyValue(roleRequest)
@@ -689,24 +725,24 @@
                         .doOnSuccess(r -> log.info("✅ Successfully stored data in Project Manager."))
                         .doOnError(e -> log.error("❌ Error storing data in Project Manager: {}", e.getMessage(), e))
                         .block();
-    
+
             } catch (Exception e) {
                 log.error("💥 Signup process failed: {}", e.getMessage(), e);
                 throw new RuntimeException("Signup failed: " + e.getMessage(), e);
             }
-    
+
             log.info("🎉 Signup process completed for realm '{}'", realm);
         }
-    
-    
-    
+
+
+
         // ---------------- UTILITY ----------------
         private String resolveUserId(String realm, String username, String token) {
             log.info("Resolving user ID for username '{}' in realm '{}'", username, realm);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/users?username=" + username;
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 List<Map<String, Object>> users = objectMapper.readValue(response.getBody(), new TypeReference<>() {});
@@ -722,13 +758,13 @@
                 throw new RuntimeException("Failed to resolve user UUID for: " + username, e);
             }
         }
-    
+
         private String getClientRoleId(String realm, String clientUUID, String roleName, String token) {
             log.info("Fetching client role ID for role '{}' on client UUID '{}'", roleName, clientUUID);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + clientUUID + "/roles";
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 List<Map<String, Object>> roles = objectMapper.readValue(response.getBody(), new TypeReference<>() {});
@@ -744,19 +780,19 @@
                 throw new RuntimeException("Failed to fetch client roles", e);
             }
         }
-    
+
         private void assignRealmManagementRoleToUser(String realm, String userId, String roleName, String token) {
             log.info("Assigning realm management role '{}' to user ID '{}'", roleName, userId);
             String clientId = getRealmManagementClientId(realm, token);
             String roleId = getRealmManagementRoleId(realm, roleName, token);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/users/" + userId + "/role-mappings/clients/" + clientId;
-    
+
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             headers.setContentType(MediaType.APPLICATION_JSON);
-    
+
             List<Map<String, Object>> roles = List.of(Map.of("id", roleId, "name", roleName));
-    
+
             try {
                 restTemplate.postForEntity(url, new HttpEntity<>(roles, headers), String.class);
                 log.info("Realm management role '{}' assigned successfully to user ID '{}'", roleName, userId);
@@ -765,13 +801,13 @@
                 throw new RuntimeException("Failed to assign realm role to user: " + e.getMessage(), e);
             }
         }
-    
+
         private String getRealmManagementClientId(String realm, String token) {
             log.info("Fetching realm-management client ID for realm '{}'", realm);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=realm-management";
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                     url, HttpMethod.GET, new HttpEntity<>(headers),
                     new ParameterizedTypeReference<>() {}
@@ -784,14 +820,14 @@
             log.error("realm-management client not found in realm '{}'.", realm);
             throw new RuntimeException("realm-management client not found");
         }
-    
+
         private String getRealmManagementRoleId(String realm, String roleName, String token) {
             log.info("Fetching realm management role ID for role '{}'", roleName);
             String clientId = getRealmManagementClientId(realm, token);
             String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + clientId + "/roles/" + roleName;
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
-    
+
             try {
                 ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
                 Map<String, Object> role = objectMapper.readValue(response.getBody(), new TypeReference<>() {});

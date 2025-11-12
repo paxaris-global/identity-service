@@ -65,43 +65,40 @@ public class KeycloakClientController {
             @PathVariable String realm,
             @RequestBody Map<String, String> credentials) {
 
-        logger.info("🔹 Login request received for realm: {}", realm);
-        logger.info("🔹 Received credential keys: {}", credentials.keySet());
+        // Extract fields from request
+        String username = credentials.get("username");
+        String password = credentials.get("password");
+        String clientId = credentials.getOrDefault("client_id", "default-client"); // default if not provided
+
+        if (username == null || password == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Missing username or password"));
+        }
 
         try {
-            String username = credentials.get("username");
-            String password = credentials.get("password");
-            String clientId = credentials.getOrDefault("client_id", "product-service");
-            String clientSecret = credentials.getOrDefault("client_secret", null);
+            // Get Keycloak token (service handles client secret automatically)
+            Map<String, Object> tokenMap = clientService.getMyRealmToken(username, password, clientId, null, realm);
 
-            logger.info("🔹 Authenticating user '{}' with clientId '{}'", username, clientId);
-
-            // Get Keycloak token
-            Map<String, Object> tokenMap = clientService.getMyRealmToken(username, password, clientId, clientSecret, realm);
-            logger.info("🔹 Keycloak response token map: {}", tokenMap);
-
-            String keycloakToken = (String) tokenMap.get("access_token");
-            if (keycloakToken == null) {
-                logger.warn("⚠️ Invalid credentials or no token returned by Keycloak");
+            String accessToken = (String) tokenMap.get("access_token");
+            if (accessToken == null || accessToken.isBlank()) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(Map.of("error", "Invalid credentials"));
+                        .body(Map.of("error", "Invalid credentials or no token returned"));
             }
 
-            // Return token only
+            // Return only necessary token info
             Map<String, Object> response = new HashMap<>();
-            response.put("access_token", keycloakToken);
+            response.put("access_token", accessToken);
             response.put("expires_in", tokenMap.get("expires_in"));
             response.put("token_type", tokenMap.get("token_type"));
 
-            logger.info("✅ Returning Keycloak token to client: {}", keycloakToken);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("❌ Login failed: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Login failed", "message", e.getMessage()));
         }
     }
+
+
 
     @GetMapping("/validate")
     public ResponseEntity<Map<String, Object>> validateToken(
