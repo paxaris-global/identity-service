@@ -115,8 +115,7 @@
 
             log.info("Attempting to get token for user '{}' in realm '{}'", username, realm);
 
-            // Automatically fetch client secret if confidential and not provided
-            if (!isPublicClient(clientId, realm) && (clientSecret == null || clientSecret.isBlank())) {
+            if (clientSecret == null || clientSecret.isBlank()) {
                 log.info("Client secret not provided. Fetching from Keycloak Admin API...");
                 clientSecret = getClientSecretFromKeycloak(realm, clientId);
                 if (clientSecret == null || clientSecret.isBlank()) {
@@ -125,7 +124,6 @@
                 log.info("Client secret retrieved successfully for client '{}'", clientId);
             }
 
-            // Build token endpoint URL
             String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
 
             HttpHeaders headers = new HttpHeaders();
@@ -134,12 +132,7 @@
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "password");
             formData.add("client_id", clientId);
-
-            // Only add client_secret if client is confidential
-            if (!isPublicClient(clientId, realm)) {
-                formData.add("client_secret", clientSecret);
-            }
-
+            formData.add("client_secret", clientSecret); // always include secret
             formData.add("username", username);
             formData.add("password", password);
 
@@ -147,48 +140,17 @@
 
             try {
                 ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
-
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
                 } else {
                     throw new IllegalArgumentException("Failed to obtain token for user: " + username);
                 }
-
             } catch (HttpClientErrorException e) {
                 throw new IllegalArgumentException("Login failed: " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
                 throw new IllegalStateException("Failed to fetch token", e);
             }
         }
-
-        private boolean isPublicClient(String clientId, String realm) {
-            try {
-                return this.isClientPublic(clientId, realm); // <-- use `this` instead of clientService
-            } catch (Exception e) {
-                log.warn("Failed to check if client '{}' is public. Assuming confidential client.", clientId);
-                return false;
-            }
-        }
-
-
-        public boolean isClientPublic(String clientId, String realm) {
-            try {
-                String token = getMasterToken();
-                String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
-                HttpHeaders headers = new HttpHeaders();
-                headers.setBearerAuth(token);
-
-                ResponseEntity<List> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), List.class);
-                if (response.getBody() != null && !response.getBody().isEmpty()) {
-                    Map<String, Object> clientData = (Map<String, Object>) response.getBody().get(0);
-                    return Boolean.TRUE.equals(clientData.get("publicClient"));
-                }
-            } catch (Exception e) {
-                log.warn("Error checking if client '{}' is public: {}", clientId, e.getMessage());
-            }
-            return false; // default to confidential if unknown
-        }
-
 
 
 
