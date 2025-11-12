@@ -129,7 +129,10 @@
                             "username='{}'\npassword='{}'\nclientId='{}'\nclientSecret='{}'\nrealm='{}'",
                     username, password, clientId, clientSecret, realm);
 
-            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
+//            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
+
+            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token",
+                    "http://localhost:8080", realm);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
