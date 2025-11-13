@@ -34,7 +34,8 @@
 
         // This method is now private and used internally to avoid duplication
         private String getMasterToken() {
-            log.info("Attempting to get master token from Keycloak...");
+            log.info("=== Attempting to get master token from Keycloak ===");
+
             String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
             log.debug("Master token URL: {}", tokenUrl);
 
@@ -51,14 +52,19 @@
 
             try {
                 ResponseEntity<Map> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, Map.class);
+
                 if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                     log.error("Failed to get master token. Status code: {}", response.getStatusCode());
                     throw new RuntimeException("Failed to get master token");
                 }
-                log.info("Successfully obtained master token.");
-                return (String) response.getBody().get("access_token");
+
+                String masterToken = (String) response.getBody().get("access_token");
+                log.info("Master token obtained: {}", masterToken); // ⚠️ prints master token
+                return masterToken;
+
             } catch (HttpClientErrorException.Unauthorized e) {
-                log.error("401 Unauthorized: Keycloak master admin credentials or client-id is incorrect. Please check your configuration. Username: {}, Client-ID: {}", config.getAdminUsername(), "admin-cli");
+                log.error("401 Unauthorized: Keycloak master admin credentials or client-id is incorrect. Username: {}, Client-ID: {}",
+                        config.getAdminUsername(), "admin-cli");
                 throw new RuntimeException("Authentication failed for master token.", e);
             } catch (Exception e) {
                 log.error("Failed to get master token due to an error: {}", e.getMessage(), e);
@@ -174,7 +180,7 @@
             try {
                 // Step 1: Get admin/master token
                 String adminToken = getMasterToken();
-                log.info("Master token fetched successfully. (Not printing for security)");
+                log.info("Using master token to fetch client secret: {}", adminToken); // ⚠️ prints master token
 
                 // Step 2: Get client internal ID
                 String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
@@ -202,8 +208,7 @@
                 }
 
                 String clientSecret = (String) secretBody.get("value");
-                log.info("Client secret fetched successfully for '{}'. [secret hidden]", clientId);
-
+                log.info("Client secret fetched successfully for '{}': {}", clientId, clientSecret); // ⚠️ prints client secret
                 return clientSecret;
 
             } catch (Exception e) {
@@ -211,7 +216,6 @@
                 throw new RuntimeException("Failed to fetch client secret for client " + clientId, e);
             }
         }
-
 
 
         @Override
