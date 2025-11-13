@@ -112,6 +112,8 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
         if (clientSecret == null || clientSecret.isBlank()) {
             log.info("Client secret not provided. Fetching from Keycloak Admin API...");
             clientSecret = getClientSecretFromKeycloak(realm, clientId);
+            log.info("Fetched clientSecret value: {}", clientSecret);
+
         }
 
         String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
@@ -145,6 +147,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
         try {
             // Step 1: Get admin token
             String adminToken = getMasterToken();
+            log.info("token", adminToken);
 
             // Step 2: Get client internal ID
             String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
