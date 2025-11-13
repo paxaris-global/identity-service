@@ -121,48 +121,49 @@
 
             log.info("=== Attempting to get token for user '{}' in realm '{}' ===", username, realm);
 
-            if (clientSecret == null || clientSecret.isBlank()) {
-                log.info("Client secret not provided. Will fetch from Keycloak Admin API using master token...");
-                clientSecret = getClientSecretFromKeycloak(realm, clientId);
-
+            try {
+                // Step 1: Fetch client secret if not provided
                 if (clientSecret == null || clientSecret.isBlank()) {
-                    throw new IllegalStateException("Client secret could not be retrieved for client: " + clientId);
+                    log.info("Client secret not provided. Fetching from Keycloak Admin API using master token...");
+                    clientSecret = getClientSecretFromKeycloak(realm, clientId);
+
+                    if (clientSecret == null || clientSecret.isBlank()) {
+                        throw new IllegalStateException("Client secret could not be retrieved for client: " + clientId);
+                    }
+
+                    log.info("Client secret retrieved successfully for client '{}': {}", clientId, clientSecret);
+                } else {
+                    log.info("Client secret provided explicitly: {}", clientSecret);
                 }
 
-                log.info("Client secret retrieved successfully for client '{}'", clientId);
-            } else {
-                log.info("Client secret provided explicitly, skipping fetch from Keycloak.");
-            }
+                // Step 2: Prepare token request
+                String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token",
+                        config.getBaseUrl(), realm);
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-            log.info("Preparing token request for Keycloak...");
-            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token",
-                    config.getBaseUrl(), realm);
+                MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+                formData.add("grant_type", "password");
+                formData.add("client_id", clientId);
+                formData.add("client_secret", clientSecret);
+                formData.add("username", username);
+                formData.add("password", password);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+                log.info("Form data prepared for Keycloak: username='{}', password='{}', clientId='{}', clientSecret='{}', realm='{}'",
+                        username, password, clientId, clientSecret, realm);
 
-            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-            formData.add("grant_type", "password");
-            formData.add("client_id", clientId);
-            formData.add("client_secret", clientSecret);
-            formData.add("username", username);
-            formData.add("password", password);
+                HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
 
-            log.info("Form data prepared for Keycloak (password hidden for security):\n" +
-                            "username='{}', clientId='{}', clientSecret='[hidden]', realm='{}'",
-                    username, clientId, realm);
-
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
-
-            try {
+                // Step 3: Execute request
                 ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
                 log.info("Token response status: {}", response.getStatusCode());
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    log.info("Token response received successfully for user '{}'", username);
+                    log.info("Token response received successfully for user '{}': {}", username, response.getBody());
                     return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
                 } else {
-                    throw new IllegalArgumentException("Failed to obtain token for user: " + username);
+                    String errorMsg = response.getBody() != null ? response.getBody() : "No response body";
+                    throw new IllegalArgumentException("Failed to obtain token for user: " + username + ". Response: " + errorMsg);
                 }
             } catch (HttpClientErrorException e) {
                 log.error("Login failed for user '{}': {}", username, e.getResponseBodyAsString(), e);
@@ -172,6 +173,7 @@
                 throw new IllegalStateException("Failed to fetch token", e);
             }
         }
+
 
 
         private String getClientSecretFromKeycloak(String realm, String clientId) {
