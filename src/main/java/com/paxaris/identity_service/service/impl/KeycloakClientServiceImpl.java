@@ -113,26 +113,24 @@
                 String clientSecret,
                 String realm) {
 
-            log.info("Attempting to get token for user '{}' in realm '{}'", username, realm);
+            log.info("=== Attempting to get token for user '{}' in realm '{}' ===", username, realm);
 
             if (clientSecret == null || clientSecret.isBlank()) {
-                log.info("Client secret not provided. Fetching from Keycloak Admin API...");
+                log.info("Client secret not provided. Will fetch from Keycloak Admin API using master token...");
                 clientSecret = getClientSecretFromKeycloak(realm, clientId);
+
                 if (clientSecret == null || clientSecret.isBlank()) {
                     throw new IllegalStateException("Client secret could not be retrieved for client: " + clientId);
                 }
+
                 log.info("Client secret retrieved successfully for client '{}'", clientId);
+            } else {
+                log.info("Client secret provided explicitly, skipping fetch from Keycloak.");
             }
 
-            // Log all the parameters being sent to Keycloak
-            log.info("Preparing token request with parameters:\n" +
-                            "username='{}'\npassword='{}'\nclientId='{}'\nclientSecret='{}'\nrealm='{}'",
-                    username, password, clientId, clientSecret, realm);
-
-//            String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token", config.getBaseUrl(), realm);
-
+            log.info("Preparing token request for Keycloak...");
             String tokenUrl = String.format("%s/realms/%s/protocol/openid-connect/token",
-                    "http://localhost:8080", realm);
+                    config.getBaseUrl(), realm);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -144,8 +142,9 @@
             formData.add("username", username);
             formData.add("password", password);
 
-            // Log the form data
-            log.info("Form data being sent to Keycloak: {}", formData);
+            log.info("Form data prepared for Keycloak (password hidden for security):\n" +
+                            "username='{}', clientId='{}', clientSecret='[hidden]', realm='{}'",
+                    username, clientId, realm);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
 
@@ -154,28 +153,28 @@
                 log.info("Token response status: {}", response.getStatusCode());
 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    log.info("Token response body: {}", response.getBody());
+                    log.info("Token response received successfully for user '{}'", username);
                     return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
                 } else {
                     throw new IllegalArgumentException("Failed to obtain token for user: " + username);
                 }
             } catch (HttpClientErrorException e) {
-                log.error("Login failed: {}", e.getResponseBodyAsString(), e);
+                log.error("Login failed for user '{}': {}", username, e.getResponseBodyAsString(), e);
                 throw new IllegalArgumentException("Login failed: " + e.getResponseBodyAsString(), e);
             } catch (Exception e) {
-                log.error("Failed to fetch token", e);
+                log.error("Failed to fetch token for user '{}'", username, e);
                 throw new IllegalStateException("Failed to fetch token", e);
             }
         }
 
 
         private String getClientSecretFromKeycloak(String realm, String clientId) {
-            log.info("Fetching client secret for client '{}' in realm '{}'", clientId, realm);
+            log.info("=== Fetching client secret for client '{}' in realm '{}' ===", clientId, realm);
 
             try {
                 // Step 1: Get admin/master token
                 String adminToken = getMasterToken();
-                log.info("Master token fetched: {}", adminToken); // Sensitive, remove in prod
+                log.info("Master token fetched successfully. (Not printing for security)");
 
                 // Step 2: Get client internal ID
                 String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
@@ -183,9 +182,7 @@
                 headers.setBearerAuth(adminToken);
                 HttpEntity<Void> request = new HttpEntity<>(headers);
 
-                ResponseEntity<List> clientsResponse = restTemplate.exchange(
-                        clientsUrl, HttpMethod.GET, request, List.class
-                );
+                ResponseEntity<List> clientsResponse = restTemplate.exchange(clientsUrl, HttpMethod.GET, request, List.class);
 
                 if (clientsResponse.getBody() == null || clientsResponse.getBody().isEmpty()) {
                     throw new RuntimeException("Client not found in Keycloak for ID: " + clientId);
@@ -205,7 +202,8 @@
                 }
 
                 String clientSecret = (String) secretBody.get("value");
-                log.info("Client secret for '{}' fetched successfully: {}", clientId, clientSecret); // Sensitive, remove in prod
+                log.info("Client secret fetched successfully for '{}'. [secret hidden]", clientId);
+
                 return clientSecret;
 
             } catch (Exception e) {
@@ -213,6 +211,7 @@
                 throw new RuntimeException("Failed to fetch client secret for client " + clientId, e);
             }
         }
+
 
 
         @Override
