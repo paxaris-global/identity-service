@@ -35,7 +35,8 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     // This method is now private and used internally to avoid duplication
     private String getMasterToken() {
         log.info("Attempting to get master token from Keycloak...");
-        String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
+//        String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
+        String tokenUrl = "http://localhost:8080/realms/master/protocol/openid-connect/token";
         log.debug("Master token URL: {}", tokenUrl);
 
         HttpHeaders headers = new HttpHeaders();
@@ -115,7 +116,8 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
             // 2️⃣ Fetch client secret dynamically
             String clientSecret = getClientSecretFromKeycloak(realm, clientId);
-            log.info("🔐 Client secret retrieved for client '{}'", clientSecret);
+            log.info("🔐 Client secret retrieved for client '{}': {}", clientId, clientSecret);
+
 
             // 3️⃣ Build token URL
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
