@@ -104,40 +104,44 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     }
 
 
-    // ---------------- TOKEN ----------------
     @Override
-    public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String clientSecret, String realm) {
-        log.info("Attempting to get token for realm '{}' and user '{}'", realm, username);
-
-        if (clientSecret == null || clientSecret.isBlank()) {
-            log.info("Client secret not provided. Fetching from Keycloak Admin API...");
-            clientSecret = getClientSecretFromKeycloak(realm, clientId);
-            log.info("Fetched clientSecret value: {}", clientSecret);
-
-        }
-
-        String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
-        log.debug("Token URL: {}", tokenUrl);
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-
-        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
-        formData.add("grant_type", "password");
-        formData.add("client_id", clientId);
-        formData.add("client_secret", clientSecret);
-        formData.add("username", username);
-        formData.add("password", password);
-
-        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+    public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String realm) {
+        log.info("🚀 Starting login flow for user '{}' in realm '{}'", username, realm);
 
         try {
-            ResponseEntity<String> response = restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
-            log.info("Successfully obtained token for user '{}' in realm '{}'", username, realm);
+            // 1️⃣ Get admin/master token
+            String adminToken = getMasterToken();
+            log.info("🔐 Master token retrieved");
+
+            // 2️⃣ Fetch client secret dynamically
+            String clientSecret = getClientSecretFromKeycloak(realm, clientId);
+            log.info("🔐 Client secret retrieved for client '{}'", clientId);
+
+            // 3️⃣ Build token URL
+            String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("grant_type", "password");
+            formData.add("client_id", clientId);
+            formData.add("client_secret", clientSecret);
+            formData.add("username", username);
+            formData.add("password", password);
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+
+            // 4️⃣ Request user access token
+            ResponseEntity<String> response =
+                    restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
+
+            // 5️⃣ Return parsed token JSON
             return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
+
         } catch (Exception e) {
-            log.error("Failed to get token for realm {} and user {}: {}", realm, username, e.getMessage(), e);
-            throw new RuntimeException("Failed to get token", e);
+            log.error("💥 Failed to get realm token for user '{}': {}", username, e.getMessage(), e);
+            throw new RuntimeException("Failed to get realm token", e);
         }
     }
 
