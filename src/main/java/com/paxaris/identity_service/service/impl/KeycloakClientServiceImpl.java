@@ -35,8 +35,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     // This method is now private and used internally to avoid duplication
     private String getMasterToken() {
         log.info("Attempting to get master token from Keycloak...");
-//        String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
-        String tokenUrl = "http://keycloak-server:8080/realms/master/protocol/openid-connect/token";
+        String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
         log.debug("Master token URL: {}", tokenUrl);
 
         HttpHeaders headers = new HttpHeaders();
@@ -153,7 +152,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
         try {
             // Step 1: Get admin token
             String adminToken = getMasterToken();
-            log.info("token", adminToken);
+            log.debug("Admin token retrieved: [HIDDEN]");
 
             // Step 2: Get client internal ID
             String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
@@ -161,27 +160,33 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             headers.setBearerAuth(adminToken);
             HttpEntity<Void> request = new HttpEntity<>(headers);
 
-            ResponseEntity<List> clientsResponse = restTemplate.exchange(
-                    clientsUrl, HttpMethod.GET, request, List.class
+            ResponseEntity<List<Map<String, Object>>> clientsResponse = restTemplate.exchange(
+                    clientsUrl,
+                    HttpMethod.GET,
+                    request,
+                    new ParameterizedTypeReference<>() {}
             );
 
-            if (clientsResponse.getBody() == null || clientsResponse.getBody().isEmpty()) {
-                throw new RuntimeException("Client not found in Keycloak for ID: " + clientId);
+            List<Map<String, Object>> clients = clientsResponse.getBody();
+            if (clients == null || clients.isEmpty()) {
+                throw new RuntimeException("Client not found in Keycloak for clientId: " + clientId);
             }
 
-            Map<String, Object> clientData = (Map<String, Object>) clientsResponse.getBody().get(0);
-            String internalClientId = (String) clientData.get("id");
+            String internalClientId = (String) clients.get(0).get("id");
             log.info("Found internal client ID: {}", internalClientId);
 
             // Step 3: Get the secret for this client
             String secretUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + internalClientId + "/client-secret";
-            ResponseEntity<Map> secretResponse = restTemplate.exchange(
-                    secretUrl, HttpMethod.GET, request, Map.class
+            ResponseEntity<Map<String, Object>> secretResponse = restTemplate.exchange(
+                    secretUrl,
+                    HttpMethod.GET,
+                    request,
+                    new ParameterizedTypeReference<>() {}
             );
 
             Map<String, Object> secretBody = secretResponse.getBody();
             if (secretBody == null || secretBody.get("value") == null) {
-                throw new RuntimeException("Client secret not found for client ID: " + clientId);
+                throw new RuntimeException("Client secret not found for clientId: " + clientId);
             }
 
             String clientSecret = (String) secretBody.get("value");
@@ -193,6 +198,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             throw new RuntimeException("Failed to fetch client secret for client " + clientId, e);
         }
     }
+
 
 
     @Override
