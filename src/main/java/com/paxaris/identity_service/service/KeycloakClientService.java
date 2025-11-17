@@ -13,6 +13,8 @@ public interface KeycloakClientService {
 
     boolean validateToken(String realm, String token);
 
+
+
     Map<String, Object> getRealmToken(String realm,
                                       String username,
                                       String password,

@@ -106,19 +106,18 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
     @Override
     public Map<String, Object> getMyRealmToken(String username, String password, String clientId, String realm) {
-        log.info("🚀 Starting login flow for user '{}' in realm '{}'", username, realm);
+
+        log.info("🚀 Login flow started for user '{}' in realm '{}'", username, realm);
 
         try {
-            // 1️⃣ Get admin/master token
+            // 1️⃣ Get master/admin token
             String adminToken = getMasterToken();
-            log.info("🔐 Master token retrieved", adminToken);
 
-            // 2️⃣ Fetch client secret dynamically
+            // 2️⃣ Fetch client secret automatically
             String clientSecret = getClientSecretFromKeycloak(realm, clientId);
-            log.info("🔐 Client secret retrieved for client '{}': {}", clientId, clientSecret);
+            log.info("🔐 Loaded client secret for '{}'", clientId);
 
-
-            // 3️⃣ Build token URL
+            // 3️⃣ Build token endpoint
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
 
             HttpHeaders headers = new HttpHeaders();
@@ -127,75 +126,81 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "password");
             formData.add("client_id", clientId);
-            formData.add("client_secret", clientSecret);
+            formData.add("client_secret", clientSecret); // Always add (you forced public=false)
             formData.add("username", username);
             formData.add("password", password);
 
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+            HttpEntity<MultiValueMap<String, String>> request =
+                    new HttpEntity<>(formData, headers);
 
-            // 4️⃣ Request user access token
+            // 4️⃣ Send login request
             ResponseEntity<String> response =
                     restTemplate.exchange(tokenUrl, HttpMethod.POST, request, String.class);
 
-            // 5️⃣ Return parsed token JSON
+            // 5️⃣ Parse JSON
             return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
 
         } catch (Exception e) {
-            log.error("💥 Failed to get realm token for user '{}': {}", username, e.getMessage(), e);
-            throw new RuntimeException("Failed to get realm token", e);
+            log.error("💥 Failed to authenticate user '{}': {}", username, e.getMessage());
+            throw new RuntimeException("Failed to authenticate user", e);
         }
     }
 
     private String getClientSecretFromKeycloak(String realm, String clientId) {
-        log.info("Fetching client secret for client '{}' in realm '{}'", clientId, realm);
+        log.info("Fetching secret for client '{}' in realm '{}'", clientId, realm);
 
         try {
-            // Step 1: Get admin token
             String adminToken = getMasterToken();
-            log.debug("Admin token retrieved: [HIDDEN]");
 
-            // Step 2: Get client internal ID
-            String clientsUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
+            // Step 1 → Find client internal ID
+            String clientsUrl = config.getBaseUrl()
+                    + "/admin/realms/" + realm + "/clients?clientId=" + clientId;
+
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(adminToken);
+
             HttpEntity<Void> request = new HttpEntity<>(headers);
 
-            ResponseEntity<List<Map<String, Object>>> clientsResponse = restTemplate.exchange(
-                    clientsUrl,
-                    HttpMethod.GET,
-                    request,
-                    new ParameterizedTypeReference<>() {}
-            );
+            ResponseEntity<List<Map<String, Object>>> clientsResponse =
+                    restTemplate.exchange(
+                            clientsUrl,
+                            HttpMethod.GET,
+                            request,
+                            new ParameterizedTypeReference<>() {}
+                    );
 
             List<Map<String, Object>> clients = clientsResponse.getBody();
+
             if (clients == null || clients.isEmpty()) {
-                throw new RuntimeException("Client not found in Keycloak for clientId: " + clientId);
+                throw new RuntimeException("Client not found: " + clientId);
             }
 
-            String internalClientId = (String) clients.get(0).get("id");
-            log.info("Found internal client ID: {}", internalClientId);
+            String internalId = (String) clients.get(0).get("id");
+            log.info("Client internal ID found: {}", internalId);
 
-            // Step 3: Get the secret for this client
-            String secretUrl = config.getBaseUrl() + "/admin/realms/" + realm + "/clients/" + internalClientId + "/client-secret";
-            ResponseEntity<Map<String, Object>> secretResponse = restTemplate.exchange(
-                    secretUrl,
-                    HttpMethod.GET,
-                    request,
-                    new ParameterizedTypeReference<>() {}
-            );
+            // Step 2 → Fetch secret
+            String secretUrl = config.getBaseUrl()
+                    + "/admin/realms/" + realm + "/clients/" + internalId + "/client-secret";
 
-            Map<String, Object> secretBody = secretResponse.getBody();
-            if (secretBody == null || secretBody.get("value") == null) {
-                throw new RuntimeException("Client secret not found for clientId: " + clientId);
+            ResponseEntity<Map<String, Object>> secretResponse =
+                    restTemplate.exchange(
+                            secretUrl,
+                            HttpMethod.GET,
+                            request,
+                            new ParameterizedTypeReference<>() {}
+                    );
+
+            Map<String, Object> body = secretResponse.getBody();
+
+            if (body == null || body.get("value") == null) {
+                throw new RuntimeException("Client secret missing in Keycloak");
             }
 
-            String clientSecret = (String) secretBody.get("value");
-            log.info("Successfully fetched client secret for '{}'", clientId);
-            return clientSecret;
+            return (String) body.get("value");
 
         } catch (Exception e) {
-            log.error("Failed to fetch client secret for '{}': {}", clientId, e.getMessage(), e);
-            throw new RuntimeException("Failed to fetch client secret for client " + clientId, e);
+            log.error("Failed to fetch client secret: {}", e.getMessage());
+            throw new RuntimeException("Cannot fetch client secret for " + clientId, e);
         }
     }
 

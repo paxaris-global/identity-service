@@ -65,8 +65,7 @@ public class KeycloakClientController {
             @PathVariable String realm,
             @RequestBody Map<String, String> credentials) {
 
-        logger.info("🔹 Login request received for realm: {}", realm);
-        logger.info("🔹 Received credential keys: {}", credentials.keySet());
+        logger.info("🔹 Login request for realm: {}", realm);
 
         try {
             String username = credentials.get("username");
@@ -75,29 +74,23 @@ public class KeycloakClientController {
 
             logger.info("🔹 Authenticating user '{}' with clientId '{}'", username, clientId);
 
-            // ✅ UPDATED — call method WITHOUT clientSecret
             Map<String, Object> tokenMap =
                     clientService.getMyRealmToken(username, password, clientId, realm);
 
-            logger.info("🔹 Keycloak response token map: {}", tokenMap);
-
-            String keycloakToken = (String) tokenMap.get("access_token");
-            if (keycloakToken == null) {
-                logger.warn("⚠️ Invalid credentials or no token returned by Keycloak");
+            if (tokenMap.get("access_token") == null) {
                 return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                         .body(Map.of("error", "Invalid credentials"));
             }
 
             Map<String, Object> response = new HashMap<>();
-            response.put("access_token", keycloakToken);
+            response.put("access_token", tokenMap.get("access_token"));
             response.put("expires_in", tokenMap.get("expires_in"));
             response.put("token_type", tokenMap.get("token_type"));
 
-            logger.info("✅ Returning Keycloak token to client: {}", keycloakToken);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("❌ Login failed: {}", e.getMessage(), e);
+            logger.error("❌ Login failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("error", "Login failed", "message", e.getMessage()));
         }
