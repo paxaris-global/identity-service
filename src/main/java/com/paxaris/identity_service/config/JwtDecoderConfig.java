@@ -11,7 +11,7 @@ public class JwtDecoderConfig {
 
     @Bean
     public JwtDecoder jwtDecoder() {
-        // No hardcoded issuer; it will be discovered per request from the token.tEST
+        // No hardcoded issuer; it will be discovered per request from the to
         return new DynamicJwtDecoder();
     }
 }
