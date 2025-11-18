@@ -8,7 +8,7 @@ import java.util.Map;
 public interface KeycloakClientService {
 
     // Token operations
-    Map<String, Object> getMyRealmToken(String username, String password, String clientId, String clientSecret, String realm);
+    Map<String, Object> getMyRealmToken(String username, String password, String clientId, String realm);
     boolean validateToken(String realm, String token);
 
     Map<String, Object> getRealmToken(String realm,

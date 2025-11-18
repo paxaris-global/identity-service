@@ -3,6 +3,8 @@ D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_servi
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\config\SecurityConfig.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\config\SwaggerConfig.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\controller\AccessValidationController.java
+D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\controller\AuthController.java
+D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\controller\CrudKeycloakApiController.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\controller\KeycloakClientController.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\dto\KeycloakConfig.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\dto\RoleCreationRequest.java
@@ -14,3 +16,4 @@ D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_servi
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\DynamicJwtDecoder.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\impl\KeycloakClientServiceImpl.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\KeycloakClientService.java
+D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\KeycloakService.java
