@@ -52,7 +52,7 @@ public class KeycloakClientController {
             @RequestParam(name = "client_secret", required = false) String clientSecret) {
 
         try {
-            Map<String, Object> token = clientService.getMyRealmToken(username, password, clientId, clientSecret, realm);
+            Map<String, Object> token = clientService.getMyRealmToken(username, password, clientId, realm);
             return ResponseEntity.ok(token);
         } catch (Exception e) {
             return ResponseEntity.status(401).body(Map.of("error", "Unauthorized", "message", e.getMessage()));
@@ -77,7 +77,7 @@ public class KeycloakClientController {
             logger.info("🔹 Authenticating user '{}' with clientId '{}'", username, clientId);
 
             // Get Keycloak token
-            Map<String, Object> tokenMap = clientService.getMyRealmToken(username, password, clientId, clientSecret, realm);
+            Map<String, Object> tokenMap = clientService.getMyRealmToken(username, password, clientId, realm);
             logger.info("🔹 Keycloak response token map: {}", tokenMap);
 
             String keycloakToken = (String) tokenMap.get("access_token");
@@ -206,7 +206,7 @@ public class KeycloakClientController {
     @PostMapping("/realm")
     public ResponseEntity<String> createRealm(@RequestParam String realmName) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             clientService.createRealm(realmName, masterToken);
             return ResponseEntity.ok("Realm created successfully: " + realmName);
@@ -218,7 +218,7 @@ public class KeycloakClientController {
     @GetMapping("/realms")
     public ResponseEntity<List<Map<String, Object>>> getAllRealms() {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             return ResponseEntity.ok(clientService.getAllRealms(masterToken));
         } catch (Exception e) {
@@ -247,7 +247,7 @@ public class KeycloakClientController {
             @PathVariable String realm,
             @PathVariable String clientName) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             String clientUUID = clientService.getClientUUID(realm, clientName, masterToken);
             return ResponseEntity.ok(clientUUID);
@@ -259,7 +259,7 @@ public class KeycloakClientController {
     @GetMapping("/clients/{realm}")
     public ResponseEntity<List<Map<String, Object>>> getAllClients(@PathVariable String realm) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             return ResponseEntity.ok(clientService.getAllClients(realm, masterToken));
         } catch (Exception e) {
@@ -291,7 +291,7 @@ public class KeycloakClientController {
     @GetMapping("/users/{realm}")
     public ResponseEntity<List<Map<String, Object>>> getAllUsers(@PathVariable String realm) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             return ResponseEntity.ok(clientService.getAllUsers(realm, masterToken));
         } catch (Exception e) {
@@ -328,7 +328,7 @@ public class KeycloakClientController {
             @PathVariable String roleName,
             @RequestBody RoleCreationRequest role) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             String clientUUID = clientService.getClientId(realm, client, masterToken);
             boolean ok = clientService.updateRole(realm, clientUUID, roleName, role, masterToken);
@@ -346,7 +346,7 @@ public class KeycloakClientController {
             @PathVariable String client,
             @PathVariable String roleName) {
         try {
-            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", null, "master")
+            String masterToken = clientService.getMyRealmToken("admin", "admin123", "admin-cli", "master")
                     .get("access_token").toString();
             String clientUUID = clientService.getClientId(realm, client, masterToken);
             boolean ok = clientService.deleteRole(realm, clientUUID, roleName, masterToken);
