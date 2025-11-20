@@ -141,6 +141,8 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             // 5️⃣ Return parsed token JSON
             return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
 
+
+
         } catch (Exception e) {
             log.error("💥 Failed to get realm token for user '{}': {}", username, e.getMessage(), e);
             throw new RuntimeException("Failed to get realm token", e);

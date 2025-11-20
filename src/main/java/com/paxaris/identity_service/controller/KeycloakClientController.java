@@ -87,13 +87,64 @@ public class KeycloakClientController {
                         .body(Map.of("error", "Invalid credentials"));
             }
 
-            // Return token only
+            // -----------------------------
+            // 🔥 NEW: Decode JWT and extract roles/realm/product
+            // -----------------------------
+            Jwt decodedJwt = jwtDecoder.decode(keycloakToken);     // (changed)
+            Map<String, Object> claims = decodedJwt.getClaims();   // (changed)
+
+            // --- Safe extraction of realm roles ---
+            Map<String, Object> realmAccess = claims.get("realm_access") instanceof Map ?
+                    (Map<String, Object>) claims.get("realm_access") : Map.of(); // (changed)
+
+            List<String> realmRoles = realmAccess.get("roles") instanceof List ?
+                    ((List<?>) realmAccess.get("roles")).stream()
+                            .map(Object::toString)
+                            .toList() : List.of();  // (changed)
+
+            // --- Safe extraction of client roles ---
+            Map<String, Object> resourceAccess = claims.get("resource_access") instanceof Map ?
+                    (Map<String, Object>) claims.get("resource_access") : Map.of(); // (changed)
+
+            List<String> clientRoles = new ArrayList<>(); // (changed)
+
+            for (Map.Entry<String, Object> entry : resourceAccess.entrySet()) {   // (changed)
+                if (!(entry.getValue() instanceof Map)) continue;
+                Map<String, Object> clientMap = (Map<String, Object>) entry.getValue();
+                if (clientMap.get("roles") instanceof List<?> rolesList) {
+                    rolesList.forEach(r -> clientRoles.add(r.toString()));
+                }
+            }
+
+            // Merge roles
+            List<String> allRoles = new ArrayList<>(realmRoles);   // (changed)
+            allRoles.addAll(clientRoles);                          // (changed)
+
+            // Extract realm from ISS claim
+            String extractedRealm = claims.getOrDefault("iss", "").toString();  // (changed)
+            if (extractedRealm.contains("/realms/")) {                           // (changed)
+                extractedRealm = extractedRealm.substring(extractedRealm.lastIndexOf("/realms/") + 8);
+            }
+
+            // Extract product (client_id from azp)
+            String product = claims.getOrDefault("azp", "").toString();         // (changed)
+
+            // -----------------------------
+            // END new section
+            // -----------------------------
+
+            // Return token + custom data
             Map<String, Object> response = new HashMap<>();
             response.put("access_token", keycloakToken);
             response.put("expires_in", tokenMap.get("expires_in"));
             response.put("token_type", tokenMap.get("token_type"));
 
-            logger.info("✅ Returning Keycloak token to client: {}", keycloakToken);
+            response.put("roles", allRoles);          // (changed)
+            response.put("realm", extractedRealm);    // (changed)
+            response.put("product", product);         // (changed)
+
+            logger.info("✅ Returning login response with roles/realm/product"); // (changed)
+
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
@@ -102,6 +153,7 @@ public class KeycloakClientController {
                     .body(Map.of("error", "Login failed", "message", e.getMessage()));
         }
     }
+
 
     @GetMapping("/validate")
     public ResponseEntity<Map<String, Object>> validateToken(
