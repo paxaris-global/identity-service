@@ -143,7 +143,7 @@ public class KeycloakClientController {
             response.put("realm", extractedRealm);    // (changed)
             response.put("product", product);         // (changed)
 
-            logger.info("✅ Returning login response with roles/realm/product"); // (changed)
+            logger.info("✅ Returning login response with roles/realm/product"); // (changeds)
 
             return ResponseEntity.ok(response);
 
