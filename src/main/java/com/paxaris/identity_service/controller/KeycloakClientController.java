@@ -72,7 +72,6 @@ public class KeycloakClientController {
             String username = credentials.get("username");
             String password = credentials.get("password");
             String clientId = credentials.getOrDefault("client_id", "product-service");
-            String clientSecret = credentials.getOrDefault("client_secret", null);
 
             logger.info("🔹 Authenticating user '{}' with clientId '{}'", username, clientId);
 
@@ -87,28 +86,21 @@ public class KeycloakClientController {
                         .body(Map.of("error", "Invalid credentials"));
             }
 
-            // -----------------------------
-            // 🔥 NEW: Decode JWT and extract roles/realm/product
-            // -----------------------------
-            Jwt decodedJwt = jwtDecoder.decode(keycloakToken);     // (changed)
-            Map<String, Object> claims = decodedJwt.getClaims();   // (changed)
+            // Decode JWT and extract roles/realm/product
+            Jwt decodedJwt = jwtDecoder.decode(keycloakToken);
+            Map<String, Object> claims = decodedJwt.getClaims();
 
-            // --- Safe extraction of realm roles ---
+            // Extract realm roles
             Map<String, Object> realmAccess = claims.get("realm_access") instanceof Map ?
-                    (Map<String, Object>) claims.get("realm_access") : Map.of(); // (changed)
-
+                    (Map<String, Object>) claims.get("realm_access") : Map.of();
             List<String> realmRoles = realmAccess.get("roles") instanceof List ?
-                    ((List<?>) realmAccess.get("roles")).stream()
-                            .map(Object::toString)
-                            .toList() : List.of();  // (changed)
+                    ((List<?>) realmAccess.get("roles")).stream().map(Object::toString).toList() : List.of();
 
-            // --- Safe extraction of client roles ---
+            // Extract client roles
             Map<String, Object> resourceAccess = claims.get("resource_access") instanceof Map ?
-                    (Map<String, Object>) claims.get("resource_access") : Map.of(); // (changed)
-
-            List<String> clientRoles = new ArrayList<>(); // (changed)
-
-            for (Map.Entry<String, Object> entry : resourceAccess.entrySet()) {   // (changed)
+                    (Map<String, Object>) claims.get("resource_access") : Map.of();
+            List<String> clientRoles = new ArrayList<>();
+            for (Map.Entry<String, Object> entry : resourceAccess.entrySet()) {
                 if (!(entry.getValue() instanceof Map)) continue;
                 Map<String, Object> clientMap = (Map<String, Object>) entry.getValue();
                 if (clientMap.get("roles") instanceof List<?> rolesList) {
@@ -117,33 +109,38 @@ public class KeycloakClientController {
             }
 
             // Merge roles
-            List<String> allRoles = new ArrayList<>(realmRoles);   // (changed)
-            allRoles.addAll(clientRoles);                          // (changed)
+            List<String> allRoles = new ArrayList<>(realmRoles);
+            allRoles.addAll(clientRoles);
 
             // Extract realm from ISS claim
-            String extractedRealm = claims.getOrDefault("iss", "").toString();  // (changed)
-            if (extractedRealm.contains("/realms/")) {                           // (changed)
+            String extractedRealm = claims.getOrDefault("iss", "").toString();
+            if (extractedRealm.contains("/realms/")) {
                 extractedRealm = extractedRealm.substring(extractedRealm.lastIndexOf("/realms/") + 8);
             }
 
             // Extract product (client_id from azp)
-            String product = claims.getOrDefault("azp", "").toString();         // (changed)
+            String product = claims.getOrDefault("azp", "").toString();
 
             // -----------------------------
-            // END new section
+            // Add URLs (hardcoded example)
+            // Replace with dynamic fetch from Project Manager if needed
             // -----------------------------
+            List<UrlEntry> urls = List.of(
+                    new UrlEntry(null, "http://localhost:8088", "/projects"),
+                    new UrlEntry(null, "http://localhost:8088", "/tasks/create")
+            );
 
-            // Return token + custom data
+            // Build response
             Map<String, Object> response = new HashMap<>();
             response.put("access_token", keycloakToken);
             response.put("expires_in", tokenMap.get("expires_in"));
             response.put("token_type", tokenMap.get("token_type"));
+            response.put("roles", allRoles);
+            response.put("realm", extractedRealm);
+            response.put("product", product);
+            response.put("urls", urls);  // ✅ Add URLs here
 
-            response.put("roles", allRoles);          // (changed)
-            response.put("realm", extractedRealm);    // (changed)
-            response.put("product", product);         // (changed)
-
-            logger.info("✅ Returning login response with roles/realm/product"); // (changeds)
+            logger.info("✅ Returning login response with roles/realm/product/urls");
 
             return ResponseEntity.ok(response);
 
@@ -153,7 +150,6 @@ public class KeycloakClientController {
                     .body(Map.of("error", "Login failed", "message", e.getMessage()));
         }
     }
-
 
     @GetMapping("/validate")
     public ResponseEntity<Map<String, Object>> validateToken(
