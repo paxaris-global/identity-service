@@ -275,21 +275,48 @@ public class KeycloakClientController {
     }
 
     // ------------------- CLIENT -------------------
+//    @PostMapping("/{realm}/clients")
+//    public ResponseEntity<String> createClient(
+//            @PathVariable String realm,
+//            @RequestHeader("Authorization") String authorizationHeader,
+//            @RequestParam String clientId,
+//            @RequestParam(defaultValue = "true") boolean publicClient) {
+//
+//        String token = authorizationHeader.startsWith("Bearer ")
+//                ? authorizationHeader.substring(7)
+//                : authorizationHeader;
+//
+//        clientService.createClient(realm, clientId, publicClient, token);
+//        return ResponseEntity.ok("Client created successfully");
+//    }
     @PostMapping("/{realm}/clients")
-    public ResponseEntity<String> createClient(
+    public ResponseEntity<?> createClient(
             @PathVariable String realm,
             @RequestHeader("Authorization") String authorizationHeader,
-            @RequestParam String clientId,
-            @RequestParam(defaultValue = "true") boolean publicClient) {
+            @RequestBody Map<String, Object> requestBody) {
 
         String token = authorizationHeader.startsWith("Bearer ")
                 ? authorizationHeader.substring(7)
                 : authorizationHeader;
 
-        clientService.createClient(realm, clientId, publicClient, token);
-        return ResponseEntity.ok("Client created successfully");
+        String clientId = (String) requestBody.get("clientId");
+        boolean publicClient = requestBody.get("publicClient") != null
+                && Boolean.parseBoolean(requestBody.get("publicClient").toString());
+
+        if (clientId == null || clientId.isEmpty()) {
+            return ResponseEntity.badRequest().body("clientId is required");
+        }
+
+        String clientUUID = clientService.createClient(realm, clientId, publicClient, token);
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Client created successfully",
+                "clientId", clientId,
+                "uuid", clientUUID
+        ));
     }
-//-------------------------------------------------------------------------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/client/{realm}/{clientName}/uuid")
     public ResponseEntity<String> getClientUUID(
             @PathVariable String realm,
