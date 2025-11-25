@@ -26,6 +26,11 @@ public class DynamicJwtDecoder implements JwtDecoder {
                 throw new JwtException("Issuer (iss) claim missing in token");
             }
 
+            // Replace localhost with docker service hostname
+            if (issuer.contains("localhost")) {
+                issuer = issuer.replace("localhost", "keycloak-server");
+            }
+
             return decoderCache
                     .computeIfAbsent(issuer, this::buildDecoder)
                     .decode(token);
