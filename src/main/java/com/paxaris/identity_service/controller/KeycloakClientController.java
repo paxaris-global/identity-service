@@ -215,8 +215,10 @@ public class KeycloakClientController {
                     "status", "VALID",
                     "realm", realm,
                     "product", product,
+                    "azp", product,     // ✅ added: include AZP in response
                     "roles", allRoles
             ));
+
 
         } catch (Exception e) {
             System.err.println("❌ Token validation failed: " + e.getMessage());
