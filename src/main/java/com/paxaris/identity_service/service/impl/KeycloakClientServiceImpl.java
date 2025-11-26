@@ -653,7 +653,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
             // Step 4: Assign default roles
             log.info("🔑 Step 4: Assigning default admin roles to '{}'", request.getAdminUser().getUsername());
-            List<String> defaultRoles = List.of("create-client", "impersonation", "manage-realm", "manage-users");
+            List<String> defaultRoles = List.of("create-client", "impersonation", "manage-realm", "manage-users","realm-management","manage-clients");
             for (String role : defaultRoles) {
                 assignRealmManagementRoleToUser(realm, userId, role, masterToken);
                 log.debug("➡️ Assigned realm-management role '{}'", role);
