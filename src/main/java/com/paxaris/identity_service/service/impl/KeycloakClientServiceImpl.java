@@ -113,13 +113,15 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             String adminToken = getMasterToken();
             log.info("🔐 Master token retrieved", adminToken);
 
-            // 2️⃣ Fetch client secret dynamically
+            // 2️⃣ Fetch client secret dynamically, skip for admin-cli
+            String clientSecret = null; // declare outside
             if (!"admin-cli".equals(clientId)) {
-                String clientSecret = getClientSecretFromKeycloak(realm, clientId);
+                clientSecret = getClientSecretFromKeycloak(realm, clientId);
                 log.info("🔐 Client secret retrieved for client '{}': {}", clientId, clientSecret);
-            }else {
+            } else {
                 log.info("⚠️ Skipping client secret fetch for 'admin-cli'");
             }
+
             // 3️⃣ Build token URL
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
 
@@ -130,7 +132,9 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
             formData.add("grant_type", "password");
             formData.add("client_id", clientId);
-            formData.add("client_secret", clientSecret);
+            if (clientSecret != null) {
+                formData.add("client_secret", clientSecret); // only add if not null
+            }
             formData.add("username", username);
             formData.add("password", password);
 
@@ -142,8 +146,6 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
             // 5️⃣ Return parsed token JSON
             return objectMapper.readValue(response.getBody(), new TypeReference<>() {});
-
-
 
         } catch (Exception e) {
             log.error("💥 Failed to get realm token for user '{}': {}", username, e.getMessage(), e);
