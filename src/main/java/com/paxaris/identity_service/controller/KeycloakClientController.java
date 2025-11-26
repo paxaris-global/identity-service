@@ -279,21 +279,32 @@ public class KeycloakClientController {
     }
 
     // ------------------- CLIENT -------------------
-    @PostMapping("/identity/{realm}/clients")
+    // ------------------- CLIENT -------------------
+    @PostMapping("/{realm}/clients")
     public ResponseEntity<String> createClient(
             @PathVariable String realm,
             @RequestHeader("Authorization") String authorizationHeader,
-            @RequestParam String clientId,
-            @RequestParam(defaultValue = "true") boolean publicClient) {
+            @RequestBody Map<String, Object> clientRequest) {
 
+        // Extract token from Authorization header
         String token = authorizationHeader.startsWith("Bearer ")
                 ? authorizationHeader.substring(7)
                 : authorizationHeader;
 
-        clientService.createClient(realm, clientId, publicClient, token);
-        return ResponseEntity.ok("Client created successfully");
+        // Extract clientId and publicClient from body
+        String clientId = clientRequest.get("clientId").toString();
+        boolean publicClient = Boolean.parseBoolean(clientRequest.getOrDefault("publicClient", "true").toString());
+
+        try {
+            clientService.createClient(realm, clientId, publicClient, token);
+            return ResponseEntity.ok("Client created successfully");
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body("Failed to create client: " + e.getMessage());
+        }
     }
-//-------------------------------------------------------------------------------------------------------------------------------------------
+
+    //-------------------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/client/{realm}/{clientName}/uuid")
     public ResponseEntity<String> getClientUUID(
             @PathVariable String realm,
