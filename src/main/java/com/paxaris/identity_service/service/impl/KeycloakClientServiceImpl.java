@@ -269,13 +269,10 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     // ---------------- CLIENT ----------------
     @Override
     public String createClient(String realm, String clientId, boolean isPublicClient, String token) {
-        log.info("Attempting to create client '{}' in realm '{}'. Public client: {}", clientId, realm, isPublicClient);
-
         // Correct Keycloak admin URL
         String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients";
-        log.debug("Target Keycloak URL: {}", url);
 
-        // Prepare request body
+        // Build request body
         Map<String, Object> body = new HashMap<>();
         body.put("clientId", clientId);
         body.put("enabled", true);
@@ -285,43 +282,33 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
         body.put("directAccessGrantsEnabled", true);
         body.put("authorizationServicesEnabled", true);
 
-        // Set client authenticator type based on public/confidential
         if (isPublicClient) {
-            body.put("clientAuthenticatorType", "client-id"); // public clients don't have secrets
-            body.put("redirectUris", Collections.singletonList("*")); // required for public clients
+            body.put("clientAuthenticatorType", "client-id");
+            body.put("redirectUris", Collections.singletonList("*"));
             body.put("serviceAccountsEnabled", false);
         } else {
             body.put("clientAuthenticatorType", "client-secret");
             body.put("serviceAccountsEnabled", true);
         }
 
-        // Prepare headers
+        // Set headers
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
-        try {
-            log.debug("Request Body: {}", body);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+        // Make REST call to Keycloak
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                log.error("Failed to create client. Status code: {}. Response body: {}", response.getStatusCode(), response.getBody());
-                throw new RuntimeException("Failed to create client with status code: " + response.getStatusCode());
-            }
-
-            log.info("Client '{}' created successfully. Fetching UUID...", clientId);
-            return getClientUUID(realm, clientId, token);
-
-        } catch (HttpClientErrorException e) {
-            log.error("Client creation failed with status {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("Failed to create client. Keycloak responded with: " + e.getResponseBodyAsString(), e);
-        } catch (Exception e) {
-            log.error("An unexpected error occurred during client creation: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to create client due to an unexpected error.", e);
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("Failed to create client with status code: " + response.getStatusCode());
         }
+
+        // Return the client UUID
+        return getClientUUID(realm, clientId, token);
     }
+
 
 
     @Override
