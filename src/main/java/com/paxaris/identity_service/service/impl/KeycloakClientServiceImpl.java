@@ -114,10 +114,12 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             log.info("🔐 Master token retrieved", adminToken);
 
             // 2️⃣ Fetch client secret dynamically
-            String clientSecret = getClientSecretFromKeycloak(realm, clientId);
-            log.info("🔐 Client secret retrieved for client '{}': {}", clientId, clientSecret);
-
-
+            if (!"admin-cli".equals(clientId)) {
+                String clientSecret = getClientSecretFromKeycloak(realm, clientId);
+                log.info("🔐 Client secret retrieved for client '{}': {}", clientId, clientSecret);
+            }else {
+                log.info("⚠️ Skipping client secret fetch for 'admin-cli'");
+            }
             // 3️⃣ Build token URL
             String tokenUrl = config.getBaseUrl() + "/realms/" + realm + "/protocol/openid-connect/token";
 
