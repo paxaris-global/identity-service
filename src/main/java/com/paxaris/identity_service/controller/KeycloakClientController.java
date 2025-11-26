@@ -280,7 +280,7 @@ public class KeycloakClientController {
 
     // ------------------- CLIENT -------------------
     // ------------------- CLIENT -------------------
-    @PostMapping("/{realm}/clients")
+    @PostMapping("/identity/{realm}/clients")
     public ResponseEntity<String> createClient(
             @PathVariable String realm,
             @RequestHeader("Authorization") String authorizationHeader,
