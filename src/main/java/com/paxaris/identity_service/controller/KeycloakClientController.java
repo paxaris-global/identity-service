@@ -286,6 +286,12 @@ public class KeycloakClientController {
             @RequestHeader("Authorization") String authorizationHeader,
             @RequestBody Map<String, Object> clientRequest) {
 
+        // ✅ Print everything you received
+        System.out.println("🔹 Received request to create client");
+        System.out.println("Realm: " + realm);
+        System.out.println("Authorization Header: " + authorizationHeader);
+        System.out.println("Client Request Body: " + clientRequest);
+
         // Extract token from Authorization header
         String token = authorizationHeader.startsWith("Bearer ")
                 ? authorizationHeader.substring(7)
@@ -295,10 +301,14 @@ public class KeycloakClientController {
         String clientId = clientRequest.get("clientId").toString();
         boolean publicClient = Boolean.parseBoolean(clientRequest.getOrDefault("publicClient", "true").toString());
 
+        System.out.println("Extracted clientId: " + clientId);
+        System.out.println("Extracted publicClient: " + publicClient);
+
         try {
             clientService.createClient(realm, clientId, publicClient, token);
             return ResponseEntity.ok("Client created successfully");
         } catch (Exception e) {
+            e.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to create client: " + e.getMessage());
         }
