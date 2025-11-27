@@ -128,17 +128,19 @@ public class KeycloakClientController {
 
             // Extract product (client_id from azp)
             String product = claims.getOrDefault("azp", "").toString();         // (changed)
+            String azp = product;
 
             // -----------------------------
             // END new section
             // -----------------------------
+
 
             // Return token + custom data
             Map<String, Object> response = new HashMap<>();
             response.put("access_token", keycloakToken);
             response.put("expires_in", tokenMap.get("expires_in"));
             response.put("token_type", tokenMap.get("token_type"));
-
+            response.put("azp", azp);
             response.put("roles", allRoles);          // (changed)
             response.put("realm", extractedRealm);    // (changed)
             response.put("product", product);         // (changed)
