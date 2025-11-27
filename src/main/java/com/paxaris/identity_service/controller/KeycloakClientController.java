@@ -284,27 +284,26 @@ public class KeycloakClientController {
     @PostMapping("/identity/{realm}/clients")
     public ResponseEntity<String> createClient(
             @PathVariable String realm,
-            @RequestHeader("Authorization") String authorizationHeader,
             @RequestBody Map<String, Object> clientRequest) {
 
-        // Extract token from Authorization header
-        String token = authorizationHeader.startsWith("Bearer ")
-                ? authorizationHeader.substring(7)
-                : authorizationHeader;
+        String masterToken = clientService.getMyRealmToken(
+                "admin", "admin123", "admin-cli", "master"
+        ).get("access_token").toString();
 
-        // Extract clientId and publicClient from request body
         String clientId = clientRequest.get("clientId").toString();
-        boolean publicClient = Boolean.parseBoolean(clientRequest.getOrDefault("publicClient", "true").toString());
+        boolean publicClient = Boolean.parseBoolean(
+                clientRequest.getOrDefault("publicClient", "true").toString()
+        );
 
         try {
-            // Call service to create client in Keycloak
-            String clientUUID = clientService.createClient(realm, clientId, publicClient, token);
+            String clientUUID = clientService.createClient(realm, clientId, publicClient, masterToken);
             return ResponseEntity.ok("Client created successfully with UUID: " + clientUUID);
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to create client: " + e.getMessage());
         }
     }
+
 
     //-------------------------------------------------------------------------------------------------------------------------------------------
     @GetMapping("/client/{realm}/{clientName}/uuid")
