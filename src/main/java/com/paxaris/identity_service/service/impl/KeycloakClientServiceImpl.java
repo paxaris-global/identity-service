@@ -36,6 +36,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     private String getMasterToken() {
         log.info("Attempting to get master token from Keycloak...");
         String tokenUrl = config.getBaseUrl() + "/realms/master/protocol/openid-connect/token";
+
         log.debug("Master token URL: {}", tokenUrl);
 
         HttpHeaders headers = new HttpHeaders();
