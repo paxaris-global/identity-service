@@ -355,6 +355,9 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     public String getClientUUID(String realm, String clientName, String token) {
         log.info("Attempting to get UUID for client '{}' in realm '{}'", clientName, realm);
         String url = config.getBaseUrl() + "/admin/realms/" + realm + "/clients?clientId=" + clientName;
+        if (token == null || !validateToken("master", token)) {
+            token = getMasterToken();
+        }
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
 
