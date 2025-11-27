@@ -333,7 +333,7 @@ public class KeycloakClientController {
     }
 
     // ------------------- USER -------------------
-    @PostMapping("/{realm}/users")
+    @PostMapping("/identity/{realm}/users")
     public ResponseEntity<String> createUser(
             @PathVariable String realm,
             @RequestHeader("Authorization") String authorizationHeader,
@@ -365,7 +365,7 @@ public class KeycloakClientController {
     }
 
     // ------------------- ROLE -------------------
-    @PostMapping("/{realm}/clients/{clientName}/roles")
+    @PostMapping("/identity/{realm}/clients/{clientName}/roles")
     public ResponseEntity<String> createClientRoles(
             @PathVariable String realm,
             @PathVariable String clientName,
@@ -386,7 +386,7 @@ public class KeycloakClientController {
     }
 
 //----------------------------------------------------------------------------------------------------------------------------------------------
-    @PutMapping("/role/{realm}/{client}/{roleName}")
+    @PutMapping("/identity/role/{realm}/{client}/{roleName}")
     public ResponseEntity<String> updateRole(
             @PathVariable String realm,
             @PathVariable String client,
@@ -424,7 +424,7 @@ public class KeycloakClientController {
 
     // ------------------- ASSIGN ROLE -------------------
     // ------------------- ASSIGN CLIENT ROLE -------------------
-    @PostMapping("/{realm}/users/{username}/clients/{clientName}/roles")
+    @PostMapping("/identity/{realm}/users/{username}/clients/{clientName}/roles")
     public ResponseEntity<String> assignClientRoleToUser(
             @PathVariable String realm,
             @PathVariable String username,
