@@ -289,7 +289,7 @@ public class KeycloakClientController {
             @RequestBody Map<String, Object> clientRequest) {
 
         String masterToken = clientService.getMyRealmToken(
-                "admin", "admin123", "admin-cli", "master"
+                "admin", "admin@123", "admin-cli", "master"
         ).get("access_token").toString();
 
         String clientId = clientRequest.get("clientId").toString();
