@@ -26,6 +26,7 @@ import org.springframework.web.client.RestTemplate;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -245,13 +246,28 @@ public class KeycloakClientController {
     }
 
     // ------------------- SIGNUP -------------------
-    @PostMapping("/signup")
-    public ResponseEntity<String> signup(@RequestBody SignupRequest request) {
+//    @PostMapping("/signup")
+//    public ResponseEntity<String> signup(@RequestBody SignupRequest request) {
+//        logger.info("Received signup request at Identity Service: {}", request);
+//        try {
+//            clientService.signup(request);
+//            logger.info("Signup completed successfully for realm: {}", request.getRealmName());
+//            return ResponseEntity.ok("Realm, client, and admin user created successfully.");
+//        } catch (Exception e) {
+//            logger.error("Signup failed at Identity Service: {}", e.getMessage(), e);
+//            return ResponseEntity.badRequest().body("Signup failed: " + e.getMessage());
+//        }
+//    }
+    @PostMapping(value = "/signup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<String> signup(
+            @RequestPart("data") SignupRequest request,
+            @RequestPart("dockerImage") MultipartFile dockerImage
+    ) {
         logger.info("Received signup request at Identity Service: {}", request);
+
         try {
-            clientService.signup(request);
-            logger.info("Signup completed successfully for realm: {}", request.getRealmName());
-            return ResponseEntity.ok("Realm, client, and admin user created successfully.");
+            clientService.signup(request, dockerImage);
+            return ResponseEntity.ok("Realm, client, admin user, and Docker image upload completed.");
         } catch (Exception e) {
             logger.error("Signup failed at Identity Service: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body("Signup failed: " + e.getMessage());

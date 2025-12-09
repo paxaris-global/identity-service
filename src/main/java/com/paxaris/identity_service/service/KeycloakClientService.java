@@ -2,6 +2,8 @@ package com.paxaris.identity_service.service;
 
 import com.paxaris.identity_service.dto.RoleCreationRequest;
 import com.paxaris.identity_service.dto.SignupRequest;
+import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 import java.util.Map;
 
@@ -44,5 +46,8 @@ public interface KeycloakClientService {
     void assignClientRoleToUser(String realm, String userId, String clientUUID, String roleId, String roleName, String token);
 
     // Signup operation
-    void signup(SignupRequest request);
+//    void signup(SignupRequest request);
+
+    void signup(SignupRequest request, MultipartFile dockerImage);
+
 }
