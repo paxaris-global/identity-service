@@ -13,7 +13,6 @@ D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_servi
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\dto\UrlEntry.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\exception\GlobalExceptionHandler.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\identityService.java
-D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\DockerService.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\DynamicJwtDecoder.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\impl\KeycloakClientServiceImpl.java
 D:\vipul_work\keycloak\identity_service\src\main\java\com\paxaris\identity_service\service\KeycloakClientService.java
