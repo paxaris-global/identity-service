@@ -3,6 +3,7 @@ package com.paxaris.identity_service.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.identity_service.dto.*;
+import com.paxaris.identity_service.service.DockerService;
 import com.paxaris.identity_service.service.KeycloakClientService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -30,7 +31,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     private final KeycloakConfig config;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-
+    private final DockerService dockerService;
     @Value("${project.management.base-url}")
     private String projectManagementBaseUrl;
 
@@ -692,6 +693,25 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             log.error("💥 Signup process failed: {}", e.getMessage(), e);
             throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
+
+        try {
+            // Step 1-5: existing Keycloak + project manager steps...
+            // (realm, client, user, roles, project manager code from your original method)
+
+            // Step 6: Docker Hub repository creation
+            dockerService.createRepository(clientId);
+
+            // Step 7: Push Docker image
+
+
+            dockerService.pushDockerImage(dockerImage, clientId);
+
+        } catch (Exception e) {
+            log.error("💥 Signup process failed: {}", e.getMessage(), e);
+            throw new RuntimeException("Signup failed: " + e.getMessage(), e);
+        }
+
+
 
         log.info("🎉 Signup process completed for realm '{}'", realm);
     }
