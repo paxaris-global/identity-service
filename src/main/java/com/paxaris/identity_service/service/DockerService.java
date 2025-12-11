@@ -3,15 +3,16 @@ package com.paxaris.identity_service.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.File;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
@@ -23,7 +24,7 @@ public class DockerService {
     private String dockerHubUsername;
 
     @Value("${DOCKER_PASSWORD}")
-    private String dockerHubToken; // Personal Access Token
+    private String dockerHubToken; // Personal Access Token from Docker Hub
 
     private final WebClient webClient = WebClient.builder()
             .baseUrl("https://hub.docker.com/v2")
@@ -31,25 +32,24 @@ public class DockerService {
             .build();
 
     /**
-     * Create a Docker Hub repository explicitly
+     * Create a Docker Hub repository using Docker Hub API
      */
     public void createRepository(String repoName) {
         try {
             log.info("🐳 Creating Docker Hub repository: {}", repoName);
 
-            // Docker Hub API v2 endpoint to create a repository
             String url = "/repositories/" + dockerHubUsername + "/" + repoName.toLowerCase() + "/";
 
-            Map<String, Object> body = Map.of(
-                    "namespace", dockerHubUsername,
-                    "name", repoName.toLowerCase(),
-                    "description", "Repository for client " + repoName,
-                    "is_private", true
-            );
+            Map<String, Object> body = new HashMap<>();
+            body.put("namespace", dockerHubUsername);
+            body.put("name", repoName.toLowerCase());
+            body.put("description", "Repository for client " + repoName);
+            body.put("is_private", true);
 
+            // Use Bearer token (Docker Personal Access Token)
             String response = webClient.post()
                     .uri(url)
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + dockerHubToken) // Use Bearer token
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + dockerHubToken)
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .bodyValue(body)
                     .retrieve()
@@ -76,6 +76,7 @@ public class DockerService {
             // Save uploaded tar file temporarily
             File tempFile = File.createTempFile(repoName.toLowerCase(), ".tar");
             dockerImage.transferTo(tempFile);
+
             log.info("📦 Docker image saved: {}", tempFile.getAbsolutePath());
 
             // ---- LOGIN ----
@@ -94,6 +95,7 @@ public class DockerService {
             if (loginProcess.waitFor() != 0) {
                 throw new RuntimeException("Docker login failed");
             }
+
             log.info("🔐 Docker login successful");
 
             // ---- LOAD IMAGE ----
@@ -104,16 +106,18 @@ public class DockerService {
             if (loadProcess.waitFor() != 0) {
                 throw new RuntimeException("Docker image load failed");
             }
+
             log.info("📤 Docker image loaded");
 
             // ---- TAG IMAGE ----
             Process tagProcess = new ProcessBuilder(
-                    "docker", "tag", repoName.toLowerCase(), repoFullName + ":latest"
+                    "docker", "tag", tempFile.getName(), repoFullName + ":latest"
             ).inheritIO().start();
 
             if (tagProcess.waitFor() != 0) {
                 throw new RuntimeException("Docker image tag failed");
             }
+
             log.info("🏷️ Docker image tagged as {}", repoFullName);
 
             // ---- PUSH IMAGE ----
@@ -124,6 +128,7 @@ public class DockerService {
             if (pushProcess.waitFor() != 0) {
                 throw new RuntimeException("Docker push failed");
             }
+
             log.info("✅ Docker image pushed successfully: {}", repoFullName);
 
             // Delete temporary file
