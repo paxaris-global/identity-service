@@ -38,17 +38,16 @@ public class DockerService {
         try {
             log.info("🐳 Creating Docker Hub repository: {}", repoName);
 
-            String url = "/repositories/" + dockerHubUsername + "/" + repoName.toLowerCase() + "/";
+            // Correct endpoint: just /repositories/
+            Map<String, Object> body = Map.of(
+                    "name", repoName.toLowerCase(),
+                    "namespace", dockerHubUsername,
+                    "description", "Repository for client " + repoName,
+                    "is_private", true
+            );
 
-            Map<String, Object> body = new HashMap<>();
-            body.put("namespace", dockerHubUsername);
-            body.put("name", repoName.toLowerCase());
-            body.put("description", "Repository for client " + repoName);
-            body.put("is_private", true);
-
-            // Use Bearer token (Docker Personal Access Token)
             String response = webClient.post()
-                    .uri(url)
+                    .uri("/repositories/")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + dockerHubToken)
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .bodyValue(body)
@@ -63,6 +62,7 @@ public class DockerService {
             throw new RuntimeException("Docker Hub repository creation failed", e);
         }
     }
+
 
     /**
      * Push Docker image to Docker Hub using Docker CLI
