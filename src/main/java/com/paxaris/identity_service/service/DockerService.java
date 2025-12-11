@@ -39,7 +39,7 @@ public class DockerService {
             );
 
             String auth = Base64.getEncoder()
-                    .encodeToString((dockerHubUsername.trim() + ":" + dockerHubPassword.trim()).getBytes());
+                    .encodeToString((dockerHubUsername + ":" + dockerHubPassword).getBytes());
 
             WebClient.builder()
                     .baseUrl("https://hub.docker.com/v2/repositories/" + dockerHubUsername.trim() + "/")
