@@ -12,7 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.io.File;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.Base64;
 import java.util.Map;
 
 @Slf4j
@@ -32,13 +32,16 @@ public class DockerService {
             .build();
 
     /**
-     * Create a Docker Hub repository using Docker Hub API
+     * Create a Docker Hub repository using Basic Auth with username + PAT
      */
     public void createRepository(String repoName) {
         try {
             log.info("🐳 Creating Docker Hub repository: {}", repoName);
 
-            // Correct endpoint: just /repositories/
+            // Docker Hub API requires POST to /repositories/ with username:token in Basic Auth
+            String auth = Base64.getEncoder()
+                    .encodeToString((dockerHubUsername + ":" + dockerHubToken).getBytes(StandardCharsets.UTF_8));
+
             Map<String, Object> body = Map.of(
                     "name", repoName.toLowerCase(),
                     "namespace", dockerHubUsername,
@@ -48,7 +51,7 @@ public class DockerService {
 
             String response = webClient.post()
                     .uri("/repositories/")
-                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + dockerHubToken)
+                    .header(HttpHeaders.AUTHORIZATION, "Basic " + auth)
                     .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                     .bodyValue(body)
                     .retrieve()
@@ -62,7 +65,6 @@ public class DockerService {
             throw new RuntimeException("Docker Hub repository creation failed", e);
         }
     }
-
 
     /**
      * Push Docker image to Docker Hub using Docker CLI
@@ -110,8 +112,10 @@ public class DockerService {
             log.info("📤 Docker image loaded");
 
             // ---- TAG IMAGE ----
+            // Extract image name from loaded tar automatically
+            String imageName = tempFile.getName().replace(".tar", "").toLowerCase();
             Process tagProcess = new ProcessBuilder(
-                    "docker", "tag", tempFile.getName(), repoFullName + ":latest"
+                    "docker", "tag", imageName, repoFullName + ":latest"
             ).inheritIO().start();
 
             if (tagProcess.waitFor() != 0) {
