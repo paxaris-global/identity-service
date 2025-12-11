@@ -10,6 +10,8 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.File;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 
@@ -19,12 +21,12 @@ import java.util.Map;
 public class DockerService {
 
     @Value("${docker.hub.username}")
-    private String dockerHubUsername;  // e.g. vipulmehra
+    private String dockerHubUsername; // e.g. vipulmehra
 
-    @Value("${docker.hub.token}")       // ❗ NOT PASSWORD — use Access Token
+    @Value("${docker.hub.token}") // ⚠️ Docker Hub Access Token (NOT password)
     private String dockerHubToken;
 
-    private WebClient webClient = WebClient.builder()
+    private final WebClient webClient = WebClient.builder()
             .baseUrl("https://hub.docker.com/v2")
             .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
             .build();
@@ -37,26 +39,99 @@ public class DockerService {
             log.info("🐳 Creating Docker Hub repository: {}", repoName);
 
             String auth = Base64.getEncoder()
-                    .encodeToString((dockerHubUsername + ":" + dockerHubToken).getBytes());
+                    .encodeToString((dockerHubUsername + ":" + dockerHubToken).getBytes(StandardCharsets.UTF_8));
 
             Map<String, Object> body = Map.of(
                     "name", repoName.toLowerCase(),
+                    "namespace", dockerHubUsername,
                     "is_private", true
             );
 
-            webClient.post()
-                    .uri("/repositories/" + dockerHubUsername + "/")
+            String response = webClient.post()
+                    .uri("/repositories/")
                     .header(HttpHeaders.AUTHORIZATION, "Basic " + auth)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .doOnSuccess(res -> log.info("✅ Repository '{}' created successfully", repoName))
-                    .doOnError(err -> log.error("❌ Error creating repo: {}", err.getMessage()))
                     .block();
 
+            log.info("✅ Repository '{}' created successfully. Response: {}", repoName, response);
+
         } catch (Exception e) {
-            log.error("💥 Failed to create Docker Hub repository: {}", e.getMessage(), e);
+            log.error("❌ Docker Hub repo creation FAILED: {}", e.getMessage(), e);
             throw new RuntimeException("Docker Hub repository creation failed", e);
+        }
+    }
+
+    /**
+     * Push Docker image to Docker Hub using Docker CLI
+     */
+    public void pushDockerImage(MultipartFile dockerImage, String repoName) {
+        try {
+            log.info("🚀 Starting Docker image push for: {}", repoName);
+
+            String repoFullName = dockerHubUsername + "/" + repoName.toLowerCase();
+
+            // Save uploaded tar file
+            File tempFile = File.createTempFile(repoName.toLowerCase(), ".tar");
+            dockerImage.transferTo(tempFile);
+
+            log.info("📦 Docker image saved: {}", tempFile.getAbsolutePath());
+
+            // ---- LOGIN ----
+            ProcessBuilder loginBuilder = new ProcessBuilder("docker", "login",
+                    "--username", dockerHubUsername,
+                    "--password-stdin");
+
+            Process loginProcess = loginBuilder.start();
+            try (OutputStream os = loginProcess.getOutputStream()) {
+                os.write(dockerHubToken.getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+
+            if (loginProcess.waitFor() != 0) {
+                throw new RuntimeException("Docker login failed");
+            }
+
+            log.info("🔐 Docker login successful");
+
+            // ---- LOAD IMAGE ----
+            Process loadProcess = new ProcessBuilder("docker", "load", "-i",
+                    tempFile.getAbsolutePath()).inheritIO().start();
+
+            if (loadProcess.waitFor() != 0) {
+                throw new RuntimeException("Docker image load failed");
+            }
+
+            log.info("📤 Docker image loaded");
+
+            // ---- TAG IMAGE ----
+            Process tagProcess = new ProcessBuilder(
+                    "docker", "tag", repoName.toLowerCase(), repoFullName + ":latest"
+            ).inheritIO().start();
+
+            if (tagProcess.waitFor() != 0) {
+                throw new RuntimeException("Docker image tag failed");
+            }
+
+            log.info("🏷️ Docker image tagged as {}", repoFullName);
+
+            // ---- PUSH IMAGE ----
+            Process pushProcess = new ProcessBuilder(
+                    "docker", "push", repoFullName + ":latest"
+            ).inheritIO().start();
+
+            if (pushProcess.waitFor() != 0) {
+                throw new RuntimeException("Docker push failed");
+            }
+
+            log.info("✅ Docker image pushed successfully: {}", repoFullName);
+
+            tempFile.delete();
+
+        } catch (Exception e) {
+            log.error("💥 Docker image push failed: {}", e.getMessage(), e);
+            throw new RuntimeException("Docker push failed", e);
         }
     }
 }
