@@ -10,6 +10,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.File;
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 
@@ -24,9 +25,13 @@ public class DockerService {
     @Value("${docker.hub.password}")
     private String dockerHubPassword;
 
+    /**
+     * Build WebClient with Basic Auth using trimmed username and password
+     */
     private WebClient buildClient() {
         String auth = Base64.getEncoder()
-                .encodeToString((dockerHubUsername + ":" + dockerHubPassword).getBytes());
+                .encodeToString((dockerHubUsername.trim() + ":" + dockerHubPassword.trim())
+                        .getBytes(StandardCharsets.UTF_8));
 
         return WebClient.builder()
                 .baseUrl("https://hub.docker.com/v2/repositories/")
@@ -35,21 +40,20 @@ public class DockerService {
     }
 
     /**
-     * Create a Docker Hub repository
+     * Create a private Docker Hub repository
      */
     public void createRepository(String clientName) {
-
         try {
             log.info("🐳 Creating Docker Hub repository: {}", clientName);
 
             Map<String, Object> repoRequest = Map.of(
-                    "name", clientName,
+                    "name", clientName.trim(),
                     "is_private", true
             );
 
             buildClient()
                     .post()
-                    .uri(dockerHubUsername + "/")
+                    .uri(dockerHubUsername.trim() + "/")  // Ensure no hidden chars
                     .bodyValue(repoRequest)
                     .retrieve()
                     .bodyToMono(String.class)
@@ -58,7 +62,7 @@ public class DockerService {
                     .block();
 
         } catch (Exception e) {
-            log.error("💥 Failed to create Docker Hub repository: {}", e.getMessage());
+            log.error("💥 Failed to create Docker Hub repository: {}", e.getMessage(), e);
             throw new RuntimeException("Docker Hub repository creation failed", e);
         }
     }
@@ -67,33 +71,27 @@ public class DockerService {
      * Push Docker image to Docker Hub
      */
     public void pushDockerImage(MultipartFile dockerImage, String clientName) {
-
         try {
             log.info("🚀 Starting Docker image push for client: {}", clientName);
 
             // Save tar file
-            File tempFile = File.createTempFile(clientName, ".tar");
+            File tempFile = File.createTempFile(clientName.trim(), ".tar");
             dockerImage.transferTo(tempFile);
 
-            String imageTag = dockerHubUsername + "/" + clientName + ":latest";
+            String imageTag = dockerHubUsername.trim() + "/" + clientName.trim() + ":latest";
 
             // ---- Docker Login ----
             ProcessBuilder login = new ProcessBuilder(
                     "docker", "login",
-                    "--username", dockerHubUsername,
+                    "--username", dockerHubUsername.trim(),
                     "--password-stdin"
             );
-
             Process loginProcess = login.start();
-
             try (OutputStream os = loginProcess.getOutputStream()) {
-                os.write(dockerHubPassword.getBytes());
+                os.write(dockerHubPassword.trim().getBytes(StandardCharsets.UTF_8));
                 os.flush();
             }
-
-            if (loginProcess.waitFor() != 0) {
-                throw new RuntimeException("Docker login failed");
-            }
+            if (loginProcess.waitFor() != 0) throw new RuntimeException("Docker login failed");
 
             // ---- Load image ----
             Process load = new ProcessBuilder("docker", "load", "-i", tempFile.getAbsolutePath())
@@ -101,7 +99,7 @@ public class DockerService {
             if (load.waitFor() != 0) throw new RuntimeException("Docker image load failed");
 
             // ---- Tag image ----
-            Process tag = new ProcessBuilder("docker", "tag", clientName, imageTag)
+            Process tag = new ProcessBuilder("docker", "tag", clientName.trim(), imageTag)
                     .inheritIO().start();
             if (tag.waitFor() != 0) throw new RuntimeException("Docker image tag failed");
 
@@ -115,7 +113,7 @@ public class DockerService {
             tempFile.delete();
 
         } catch (Exception e) {
-            log.error("💥 Docker image push failed: {}", e.getMessage());
+            log.error("💥 Docker image push failed: {}", e.getMessage(), e);
             throw new RuntimeException("Docker push failed", e);
         }
     }
