@@ -20,11 +20,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DockerService {
 
-    @Value("${docker.hub.username}")
-    private String dockerHubUsername; // e.g. vipulmehra
+    @Value("${DOCKER_USERNAME}")
+    private String dockerHubUsername;
 
-    @Value("${docker.hub.token}") // ⚠️ Docker Hub Access Token (NOT password)
-    private String dockerHubToken;
+    @Value("${DOCKER_PASSWORD}")
+    private String dockerHubToken; // use access token, NOT password
+
 
     private final WebClient webClient = WebClient.builder()
             .baseUrl("https://hub.docker.com/v2")
