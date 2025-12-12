@@ -696,6 +696,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
         dockerService.createRepository(request.getClientId());
         dockerService.pushDockerImage(dockerImage, request.getClientId());
+
 //        try {
 //            dockerService.createRepository(request.getClientId());
 //            dockerService.pushDockerImage(dockerImage, request.getClientId());
