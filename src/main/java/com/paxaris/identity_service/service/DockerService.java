@@ -57,15 +57,16 @@ public class DockerService {
     /**
      * Create repository using JWT token
      */
-    public void createRepository(String repoName) {
+    public void createRepository(String realmName, String clientId) {
         try {
+            String repoName = (realmName + "-" + clientId).toLowerCase();
             log.info("🐳 Creating Docker Hub repo: {}", repoName);
 
             String jwt = getJwtToken();
 
             Map<String, Object> body = Map.of(
                     "namespace", dockerHubUsername,
-                    "name", repoName.toLowerCase(),
+                    "name", repoName,
                     "description", "Repo for " + repoName,
                     "is_private", true
             );
@@ -93,14 +94,13 @@ public class DockerService {
     /**
      * Push Docker image (.tar file)
      */
-    public void pushDockerImage(MultipartFile dockerImage, String repoName) {
+    public void pushDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
         try {
-            log.info("🚀 Starting push for repo {}", repoName);
-
-            String repoFullName = dockerHubUsername + "/" + repoName.toLowerCase();
+            String repoFullName = dockerHubUsername + "/" + (realmName + "-" + clientId).toLowerCase();
+            log.info("🚀 Starting push for repo {}", repoFullName);
 
             // Save uploaded tar
-            File tempFile = File.createTempFile(repoName.toLowerCase(), ".tar");
+            File tempFile = File.createTempFile(repoFullName.replace("/", "-"), ".tar");
             dockerImage.transferTo(tempFile);
 
             // Login using CLI
@@ -123,7 +123,7 @@ public class DockerService {
             loadProcess.waitFor();
 
             // Tag image
-            String localImgName = repoName.toLowerCase();
+            String localImgName = dockerImage.getOriginalFilename().replace(".tar", "");
             new ProcessBuilder("docker", "tag", localImgName, repoFullName + ":latest")
                     .inheritIO().start().waitFor();
 
@@ -135,7 +135,7 @@ public class DockerService {
             log.info("✅ Image pushed successfully to {}", repoFullName);
 
         } catch (Exception e) {
-            log.error("💥 Docker push failed: {}", e.getMessage());
+            log.error("💥 Docker push failed: {}", e.getMessage(), e);
             throw new RuntimeException("Docker push failed", e);
         }
     }
