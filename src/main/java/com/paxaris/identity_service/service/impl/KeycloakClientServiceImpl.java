@@ -20,6 +20,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
 
+import java.io.File;
 import java.util.*;
 
 @Service
@@ -693,9 +694,9 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             log.error("💥 Signup process failed: {}", e.getMessage(), e);
             throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
-
         dockerService.createRepository(realm, clientId);
-        dockerService.pushDockerImage(dockerImage, realm, clientId);
+        File dockerTar = dockerService.saveDockerImage(dockerImage, realm, clientId);
+        dockerService.pushDockerImage(dockerTar, realm, clientId);
 
 
 

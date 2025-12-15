@@ -37,68 +37,58 @@ public class DockerService {
         }
     }
 
-    /**
-     * Push Docker image using local Docker CLI
-     * This is more reliable than HTTP API for .tar files
-     */
-    public void pushDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
-        String repoName = getRepoName(realmName, clientId);
-        File tempFile = null;
+    /** Save uploaded Docker image as a temporary tar file */
+    public File saveDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
         try {
-            // Save the uploaded Docker image as a temporary tar file
-            tempFile = File.createTempFile(repoName, ".tar");
+            String repoName = getRepoName(realmName, clientId);
+            File tempFile = File.createTempFile(repoName, ".tar");
             dockerImage.transferTo(tempFile);
             log.info("📦 Docker image tar saved at {}", tempFile.getAbsolutePath());
+            return tempFile;
+        } catch (IOException e) {
+            log.error("💥 Failed to save Docker image tar: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to save Docker image tar", e);
+        }
+    }
 
-            // Login to Docker
+    /** Push Docker image using local Docker CLI from a File */
+    public void pushDockerImage(File dockerTar, String realmName, String clientId) {
+        String repoName = getRepoName(realmName, clientId);
+
+        try {
+            // Docker login
             Process login = new ProcessBuilder("docker", "login",
-                    "-u", dockerUsername,
-                    "-p", dockerPassword)
-                    .inheritIO()
-                    .start();
-            int loginCode = login.waitFor();
-            if (loginCode != 0) {
-                throw new RuntimeException("Docker login failed with exit code " + loginCode);
-            }
+                    "-u", dockerUsername, "-p", dockerPassword)
+                    .inheritIO().start();
+            if (login.waitFor() != 0) throw new RuntimeException("Docker login failed");
             log.info("✅ Docker login successful");
 
-            // Load the image tar
-            Process load = new ProcessBuilder("docker", "load", "-i", tempFile.getAbsolutePath())
-                    .inheritIO()
-                    .start();
-            int loadCode = load.waitFor();
-            if (loadCode != 0) {
-                throw new RuntimeException("Docker load failed with exit code " + loadCode);
-            }
+            // Load tar
+            Process load = new ProcessBuilder("docker", "load", "-i", dockerTar.getAbsolutePath())
+                    .inheritIO().start();
+            if (load.waitFor() != 0) throw new RuntimeException("Docker load failed");
             log.info("✅ Docker image loaded successfully");
 
-            // Tag the image
+            // Tag
             String imageTag = dockerUsername + "/" + repoName + ":latest";
             Process tag = new ProcessBuilder("docker", "tag", repoName, imageTag)
-                    .inheritIO()
-                    .start();
-            int tagCode = tag.waitFor();
-            if (tagCode != 0) {
-                throw new RuntimeException("Docker tag failed with exit code " + tagCode);
-            }
+                    .inheritIO().start();
+            if (tag.waitFor() != 0) throw new RuntimeException("Docker tag failed");
+            log.info("✅ Docker image tagged as {}", imageTag);
 
-            // Push the image
+            // Push
             Process push = new ProcessBuilder("docker", "push", imageTag)
-                    .inheritIO()
-                    .start();
-            int pushCode = push.waitFor();
-            if (pushCode != 0) {
-                throw new RuntimeException("Docker push failed with exit code " + pushCode);
-            }
-
+                    .inheritIO().start();
+            if (push.waitFor() != 0) throw new RuntimeException("Docker push failed");
             log.info("🚀 Docker image pushed successfully: {}", imageTag);
 
         } catch (IOException | InterruptedException e) {
             log.error("💥 Docker push failed: {}", e.getMessage(), e);
             throw new RuntimeException("Docker push failed", e);
         } finally {
-            if (tempFile != null && tempFile.exists()) {
-                tempFile.delete();
+            // Clean up temporary tar
+            if (dockerTar != null && dockerTar.exists()) {
+                dockerTar.delete();
             }
         }
     }
