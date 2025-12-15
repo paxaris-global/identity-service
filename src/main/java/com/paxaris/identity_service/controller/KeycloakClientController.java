@@ -258,21 +258,21 @@ public class KeycloakClientController {
 //            return ResponseEntity.badRequest().body("Signup failed: " + e.getMessage());
 //        }
 //    }
-    @PostMapping(value = "/signup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<String> signup(
-            @RequestPart("data") SignupRequest request,
-            @RequestPart("dockerImage") MultipartFile dockerImage
-    ) {
-        logger.info("Received signup request at Identity Service: {}", request);
+        @PostMapping(value = "/signup", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+        public ResponseEntity<String> signup(
+                @RequestPart("data") SignupRequest request,
+                @RequestPart("dockerImage") MultipartFile dockerImage
+        ) {
+            logger.info("Received signup request at Identity Service: {}", request);
 
-        try {
-            clientService.signup(request, dockerImage);
-            return ResponseEntity.ok("Realm, client, admin user, and Docker image upload completed.");
-        } catch (Exception e) {
-            logger.error("Signup failed at Identity Service: {}", e.getMessage(), e);
-            return ResponseEntity.badRequest().body("Signup failed: " + e.getMessage());
+            try {
+                clientService.signup(request, dockerImage);
+                return ResponseEntity.ok("Realm, client, admin user, and Docker image upload completed.");
+            } catch (Exception e) {
+                logger.error("Signup failed at Identity Service: {}", e.getMessage(), e);
+                return ResponseEntity.badRequest().body("Signup failed: " + e.getMessage());
+            }
         }
-    }
 
     // ------------------- REALM ----------------------------------------------------------------------------------------------------------------------------
     @PostMapping("/realm")
