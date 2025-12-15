@@ -3,12 +3,17 @@ package com.paxaris.identity_service.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import java.io.File;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -19,74 +24,97 @@ public class DockerService {
     private String dockerHubUsername;
 
     @Value("${DOCKER_PASSWORD}")
-    private String dockerHubToken; // PAT
+    private String dockerHubToken; // Personal Access Token
+
+    private final WebClient webClient = WebClient.builder()
+            .baseUrl("https://hub.docker.com")
+            .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+            .build();
 
     /**
-     * Login to Docker Hub using CLI (AUTOMATIC)
+     * Login to Docker Hub and receive JWT token
      */
-    private void dockerLogin() throws Exception {
-        log.info("🔐 Logging into Docker Hub via CLI...");
+    private String getJwtToken() {
+        try {
+            Map<String, String> requestMap = new HashMap<>();
+            requestMap.put("username", dockerHubUsername);
+            requestMap.put("password", dockerHubToken);
 
-        Process loginProcess = new ProcessBuilder(
-                "docker", "login",
-                "--username", dockerHubUsername,
-                "--password-stdin"
-        ).start();
+            Map response = webClient.post()
+                    .uri("/v2/users/login/")
+                    .bodyValue(requestMap)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block();
 
-        try (OutputStream os = loginProcess.getOutputStream()) {
-            os.write(dockerHubToken.getBytes(StandardCharsets.UTF_8));
+            return (String) response.get("token");
+        } catch (Exception e) {
+            log.error("❌ Docker Hub login FAILED: {}", e.getMessage());
+            throw new RuntimeException("Docker Hub login failed", e);
         }
-
-        if (loginProcess.waitFor() != 0) {
-            throw new RuntimeException("Docker login failed");
-        }
-
-        log.info("✅ Docker login successful");
     }
 
     /**
-     * Create repository using Docker CLI (SAFE & WORKING)
+     * Create repository using JWT token
      */
-    public void createRepository(String realmName, String clientId) {
-        String repoName = (realmName + "-" + clientId).toLowerCase();
-        String repoFullName = dockerHubUsername + "/" + repoName;
-
+    public void createRepository(String repoName) {
         try {
-            dockerLogin();
+            log.info("🐳 Creating Docker Hub repo: {}", repoName);
 
-            log.info("🐳 Ensuring Docker Hub repo exists: {}", repoFullName);
+            String jwt = getJwtToken();
 
-            Process inspect = new ProcessBuilder(
-                    "docker", "manifest", "inspect", repoFullName
-            ).start();
+            Map<String, Object> body = Map.of(
+                    "namespace", dockerHubUsername,
+                    "name", repoName.toLowerCase(),
+                    "description", "Repo for " + repoName,
+                    "is_private", true
+            );
 
-            if (inspect.waitFor() == 0) {
-                log.warn("⚠ Repository already exists: {}", repoFullName);
-                return;
-            }
+            String response = webClient.post()
+                    .uri("/v2/repositories/" + dockerHubUsername + "/")
+                    .header(HttpHeaders.AUTHORIZATION, "JWT " + jwt)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
 
-            log.info("ℹ Repository will be created on first push (Docker behavior)");
+            log.info("✅ Repo created successfully: {}", response);
 
         } catch (Exception e) {
-            log.error("❌ Repo check/login failed", e);
-            throw new RuntimeException("Docker repo preparation failed", e);
+            if (e.getMessage().contains("409")) {
+                log.warn("⚠ Repo already exists, skipping.");
+                return;
+            }
+            log.error("❌ Repo creation FAILED: {}", e.getMessage());
+            throw new RuntimeException("Docker Hub repo creation failed", e);
         }
     }
 
     /**
-     * Push Docker image (.tar) to Docker Hub
+     * Push Docker image (.tar file)
      */
-    public void pushDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
-        String repoName = (realmName + "-" + clientId).toLowerCase();
-        String repoFullName = dockerHubUsername + "/" + repoName;
-
+    public void pushDockerImage(MultipartFile dockerImage, String repoName) {
         try {
-            dockerLogin();
+            log.info("🚀 Starting push for repo {}", repoName);
 
-            log.info("🚀 Pushing image to {}", repoFullName);
+            String repoFullName = dockerHubUsername + "/" + repoName.toLowerCase();
 
-            File tempFile = File.createTempFile(repoName, ".tar");
+            // Save uploaded tar
+            File tempFile = File.createTempFile(repoName.toLowerCase(), ".tar");
             dockerImage.transferTo(tempFile);
+
+            // Login using CLI
+            Process loginProcess = new ProcessBuilder(
+                    "docker", "login",
+                    "--username", dockerHubUsername,
+                    "--password-stdin"
+            ).start();
+
+            try (OutputStream os = loginProcess.getOutputStream()) {
+                os.write(dockerHubToken.getBytes(StandardCharsets.UTF_8));
+            }
+
+            if (loginProcess.waitFor() != 0) throw new RuntimeException("Docker login failed");
 
             // Load image
             Process loadProcess = new ProcessBuilder(
@@ -95,24 +123,19 @@ public class DockerService {
             loadProcess.waitFor();
 
             // Tag image
-            new ProcessBuilder(
-                    "docker", "tag",
-                    repoName,
-                    repoFullName + ":latest"
-            ).inheritIO().start().waitFor();
+            String localImgName = repoName.toLowerCase();
+            new ProcessBuilder("docker", "tag", localImgName, repoFullName + ":latest")
+                    .inheritIO().start().waitFor();
 
-            // Push image (repo auto-created here)
-            new ProcessBuilder(
-                    "docker", "push",
-                    repoFullName + ":latest"
-            ).inheritIO().start().waitFor();
+            // Push
+            new ProcessBuilder("docker", "push", repoFullName + ":latest")
+                    .inheritIO().start().waitFor();
 
             tempFile.delete();
-
-            log.info("✅ Image pushed successfully: {}", repoFullName);
+            log.info("✅ Image pushed successfully to {}", repoFullName);
 
         } catch (Exception e) {
-            log.error("💥 Docker push FAILED", e);
+            log.error("💥 Docker push failed: {}", e.getMessage());
             throw new RuntimeException("Docker push failed", e);
         }
     }
