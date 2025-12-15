@@ -26,6 +26,7 @@ public class DockerService {
     @Value("${DOCKER_PASSWORD}")
     private String dockerPassword;
 
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private final WebClient webClient = WebClient.builder()
@@ -96,27 +97,37 @@ public class DockerService {
     }
 
     /** Push Docker image using Docker Hub HTTP API (v2) */
-    public void pushDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
+    public void pushDockerImage(MultipartFile dockerImage, String realm, String clientId) {
         try {
-            // Docker Hub expects actual image layers + manifest
-            // Directly uploading .tar is complex and error-prone
-            // ✅ Recommended: Use Jib or Kaniko to push image programmatically
+            String repoName = dockerUsername + "/" + getRepoName(realm, clientId);
 
-            log.info("🚀 Pushing Docker image via Jib or HTTP API is recommended");
-
-            // Save tar locally (optional if needed for CI/CD)
-            File tempFile = File.createTempFile(getRepoName(realmName, clientId), ".tar");
+            // Save tar locally
+            File tempFile = File.createTempFile(getRepoName(realm, clientId), ".tar");
             dockerImage.transferTo(tempFile);
-            log.info("📦 Docker image tar saved at {}", tempFile.getAbsolutePath());
 
-            // In production/Kubernetes: replace this with Jib/BuildKit/kaniko push
-            log.info("✅ Image ready for push to Docker Hub: {}-{}", realmName, clientId);
+            // Load and push image using Docker CLI
+            ProcessBuilder pb = new ProcessBuilder(
+                    "docker", "load", "-i", tempFile.getAbsolutePath()
+            );
+            pb.inheritIO();
+            Process process = pb.start();
+            process.waitFor();
+
+            // Tag & push (optional if tag exists in tar)
+            ProcessBuilder pushPb = new ProcessBuilder(
+                    "docker", "push", repoName
+            );
+            pushPb.inheritIO();
+            Process pushProcess = pushPb.start();
+            pushProcess.waitFor();
+
+            log.info("✅ Docker image pushed successfully: {}", repoName);
 
             tempFile.delete();
-
         } catch (Exception e) {
-            log.error("💥 Docker push failed: {}", e.getMessage(), e);
+            log.error("💥 Docker push failed", e);
             throw new RuntimeException("Docker push failed", e);
         }
     }
+
 }
