@@ -694,15 +694,17 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
 
-        // After all Keycloak steps
-        String repoName = request.getClientId();
+        // After Keycloak & Project Manager steps
         String realmName = request.getRealmName() != null ? request.getRealmName() : "default-realm";
+        String clientIds = request.getClientId();
 
-// Create Docker Hub repo and push image
-        dockerService.createRepository(realmName, repoName);
-        dockerService.pushDockerImage(dockerImage, realmName, repoName);
+// 1️⃣ Create Docker Hub repo
+        dockerService.createRepository(realmName, clientIds);
 
-        log.info("🎉 Signup process completed for realm '{}'", realmName);
+// 2️⃣ Push the uploaded Docker image
+        dockerService.pushDockerImage(dockerImage, realmName, clientIds);
+
+        log.info("🎉 Signup completed for realm '{}'", realmName);
 
 
         log.info("🎉 Signup process completed for realm '{}'", realm);
