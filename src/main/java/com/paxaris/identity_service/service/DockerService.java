@@ -30,7 +30,7 @@ public class DockerService {
     }
 
     /* =================================================
-       STEP 1: GET DOCKER HUB JWT
+       STEP 1: GET DOCKER HUB JWT (FOR REPO CREATION)
      ================================================= */
     private String getDockerJwt() {
         try {
@@ -58,7 +58,6 @@ public class DockerService {
                     new BufferedReader(new InputStreamReader(con.getInputStream()));
             String response = br.readLine();
 
-            // {"token":"JWT_TOKEN"}
             return response.split("\"token\":\"")[1].split("\"")[0];
 
         } catch (Exception e) {
@@ -133,11 +132,9 @@ public class DockerService {
             String loadOutput = execWithFullOutput(
                     "docker", "load", "-i", tar.getAbsolutePath()
             );
-
             log.info("🐳 docker load output:\n{}", loadOutput);
 
             String sourceImage = extractImageFromLoad(loadOutput);
-
             log.info("🏷️ Source image resolved as: {}", sourceImage);
 
             exec("docker", "tag", sourceImage, fullTag);
@@ -148,23 +145,28 @@ public class DockerService {
         } catch (Exception e) {
             throw new RuntimeException("Docker image push failed", e);
         } finally {
-            if (tar != null && tar.exists()) {
-                tar.delete();
-            }
+            if (tar != null && tar.exists()) tar.delete();
         }
     }
 
     /* =================================================
-       DOCKER LOGIN
+       DOCKER LOGIN (FIXED FOR CONTAINERS)
      ================================================= */
     private void dockerLogin() throws Exception {
         Process process = new ProcessBuilder(
-                "docker", "login", "-u", dockerUsername, "--password-stdin"
-        ).start();
+                "docker", "login",
+                "-u", dockerUsername,
+                "-p", dockerPat
+        )
+                .redirectErrorStream(true)
+                .start();
 
-        try (BufferedWriter writer =
-                     new BufferedWriter(new OutputStreamWriter(process.getOutputStream()))) {
-            writer.write(dockerPat);
+        try (BufferedReader reader =
+                     new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.info("🐳 docker login: {}", line);
+            }
         }
 
         if (process.waitFor() != 0) {
@@ -178,14 +180,27 @@ public class DockerService {
        PROCESS HELPERS
      ================================================= */
     private void exec(String... cmd) throws Exception {
-        Process p = new ProcessBuilder(cmd).inheritIO().start();
+        Process p = new ProcessBuilder(cmd)
+                .redirectErrorStream(true)
+                .start();
+
+        try (BufferedReader reader =
+                     new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                log.info("🐳 docker: {}", line);
+            }
+        }
+
         if (p.waitFor() != 0) {
             throw new RuntimeException("Command failed: " + String.join(" ", cmd));
         }
     }
 
     private String execWithFullOutput(String... cmd) throws Exception {
-        Process p = new ProcessBuilder(cmd).start();
+        Process p = new ProcessBuilder(cmd)
+                .redirectErrorStream(true)
+                .start();
 
         StringBuilder output = new StringBuilder();
         try (BufferedReader br =
@@ -205,14 +220,12 @@ public class DockerService {
      ================================================= */
     private String extractImageFromLoad(String output) {
 
-        // Case 1: Loaded image: myapp:1.0
         for (String line : output.split("\n")) {
             if (line.startsWith("Loaded image:")) {
                 return line.replace("Loaded image:", "").trim();
             }
         }
 
-        // Case 2: Loaded image ID: sha256:xxxx
         for (String line : output.split("\n")) {
             if (line.startsWith("Loaded image ID:")) {
                 return line.replace("Loaded image ID:", "").trim();
