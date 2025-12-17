@@ -6,90 +6,125 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class DockerService {
 
-    @Value("${DOCKER_USERNAME}")
+    @Value("${docker.hub.username}")
     private String dockerUsername;
 
-    @Value("${DOCKER_PASSWORD}")
-    private String dockerPassword;
+    @Value("${docker.hub.password}")
+    private String dockerToken; // PAT token
 
-    /** Build repo name in format: realm-clientId */
-    private String getRepoName(String realmName, String clientId) {
-        return (realmName + "-" + clientId).toLowerCase();
+    /** repo = realm-clientId */
+    private String repo(String realm, String client) {
+        return (realm + "-" + client).toLowerCase();
     }
 
-    /** Create repository on Docker Hub (optional, will skip if forbidden) */
-    public void createRepository(String realmName, String clientId) {
-        String repoName = getRepoName(realmName, clientId);
+    /** ----------------------------------------
+     *  CREATE DOCKER HUB REPOSITORY
+     *  ---------------------------------------- */
+    public void createRepository(String realm, String client) {
+        String repoName = repo(realm, client);
+
         try {
-            log.info("ℹ️ Attempting to create Docker Hub repo: {}", repoName);
-            // Docker Hub API repo creation is unreliable for personal accounts
-            // Recommend pre-creating the repo manually if 403 occurs
+            URL url = new URL("https://hub.docker.com/v2/repositories/" + dockerUsername + "/");
+            HttpURLConnection con = (HttpURLConnection) url.openConnection();
+
+            con.setRequestMethod("POST");
+            con.setRequestProperty("Authorization", "Bearer " + dockerToken);
+            con.setRequestProperty("Content-Type", "application/json");
+            con.setDoOutput(true);
+
+            String body = """
+            {
+              "name": "%s",
+              "is_private": false
+            }
+            """.formatted(repoName);
+
+            con.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+
+            int code = con.getResponseCode();
+            if (code == 201 || code == 409) {
+                log.info("✅ Docker Hub repo ready: {}", repoName);
+            } else {
+                throw new RuntimeException("Repo create failed HTTP " + code);
+            }
+
         } catch (Exception e) {
-            log.warn("⚠ Repo creation skipped (likely already exists or forbidden): {}", e.getMessage());
+            throw new RuntimeException("Docker repo creation failed", e);
         }
     }
 
-    /** Save uploaded Docker image as a temporary tar file */
-    public File saveDockerImage(MultipartFile dockerImage, String realmName, String clientId) {
+    /** ----------------------------------------
+     *  SAVE TAR FILE
+     *  ---------------------------------------- */
+    public File saveDockerImage(MultipartFile file) {
         try {
-            String repoName = getRepoName(realmName, clientId);
-            File tempFile = File.createTempFile(repoName, ".tar");
-            dockerImage.transferTo(tempFile);
-            log.info("📦 Docker image tar saved at {}", tempFile.getAbsolutePath());
-            return tempFile;
+            File tar = File.createTempFile("docker-", ".tar");
+            file.transferTo(tar);
+            return tar;
         } catch (IOException e) {
-            log.error("💥 Failed to save Docker image tar: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to save Docker image tar", e);
+            throw new RuntimeException(e);
         }
     }
 
-    /** Push Docker image using local Docker CLI from a File */
-    public void pushDockerImage(File dockerTar, String realmName, String clientId) {
-        String repoName = getRepoName(realmName, clientId);
+    /** ----------------------------------------
+     *  PUSH IMAGE
+     *  ---------------------------------------- */
+    public void pushDockerImage(File tar, String realm, String client) {
+        String repoName = repo(realm, client);
+        String fullTag = dockerUsername + "/" + repoName + ":latest";
 
         try {
-            // Docker login
-            Process login = new ProcessBuilder("docker", "login",
-                    "-u", dockerUsername, "-p", dockerPassword)
-                    .inheritIO().start();
-            if (login.waitFor() != 0) throw new RuntimeException("Docker login failed");
-            log.info("✅ Docker login successful");
+            exec("docker", "login", "-u", dockerUsername, "--password-stdin", dockerToken);
 
-            // Load tar
-            Process load = new ProcessBuilder("docker", "load", "-i", dockerTar.getAbsolutePath())
-                    .inheritIO().start();
-            if (load.waitFor() != 0) throw new RuntimeException("Docker load failed");
-            log.info("✅ Docker image loaded successfully");
+            // Load and CAPTURE IMAGE NAME
+            String loadedImage = execWithOutput("docker", "load", "-i", tar.getAbsolutePath());
+            String sourceImage = extractImageName(loadedImage);
 
-            // Tag
-            String imageTag = dockerUsername + "/" + repoName + ":latest";
-            Process tag = new ProcessBuilder("docker", "tag", repoName, imageTag)
-                    .inheritIO().start();
-            if (tag.waitFor() != 0) throw new RuntimeException("Docker tag failed");
-            log.info("✅ Docker image tagged as {}", imageTag);
+            exec("docker", "tag", sourceImage, fullTag);
+            exec("docker", "push", fullTag);
 
-            // Push
-            Process push = new ProcessBuilder("docker", "push", imageTag)
-                    .inheritIO().start();
-            if (push.waitFor() != 0) throw new RuntimeException("Docker push failed");
-            log.info("🚀 Docker image pushed successfully: {}", imageTag);
+            log.info("🚀 Image pushed: {}", fullTag);
 
-        } catch (IOException | InterruptedException e) {
-            log.error("💥 Docker push failed: {}", e.getMessage(), e);
+        } catch (Exception e) {
             throw new RuntimeException("Docker push failed", e);
         } finally {
-            // Clean up temporary tar
-            if (dockerTar != null && dockerTar.exists()) {
-                dockerTar.delete();
-            }
+            tar.delete();
         }
+    }
+
+    /** ----------------------------------------
+     *  UTIL METHODS
+     *  ---------------------------------------- */
+
+    private void exec(String... cmd) throws Exception {
+        Process p = new ProcessBuilder(cmd).inheritIO().start();
+        if (p.waitFor() != 0)
+            throw new RuntimeException("Command failed: " + String.join(" ", cmd));
+    }
+
+    private String execWithOutput(String... cmd) throws Exception {
+        Process p = new ProcessBuilder(cmd).start();
+        BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
+        String out = br.readLine();
+        p.waitFor();
+        return out;
+    }
+
+    private String extractImageName(String dockerLoadOutput) {
+        // "Loaded image: myapp:1.0"
+        if (dockerLoadOutput.contains("Loaded image:")) {
+            return dockerLoadOutput.replace("Loaded image: ", "").trim();
+        }
+        throw new RuntimeException("Cannot detect loaded image name");
     }
 }
