@@ -41,22 +41,23 @@ public class DockerService {
             con.setRequestProperty("Content-Type", "application/json");
             con.setDoOutput(true);
 
-            String body = """
-            {
-              "username": "%s",
-              "password": "%s"
-            }
-            """.formatted(dockerUsername, dockerPat);
+            String body = String.format("""
+                {"username": "%s", "password": "%s"}
+                """, dockerUsername, dockerPat);
 
-            con.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
-
-            if (con.getResponseCode() != 200) {
-                throw new RuntimeException("Docker Hub login API failed");
+            try (OutputStream os = con.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
             }
 
-            BufferedReader br =
-                    new BufferedReader(new InputStreamReader(con.getInputStream()));
-            String response = br.readLine();
+            int code = con.getResponseCode();
+            InputStream is = code >= 400 ? con.getErrorStream() : con.getInputStream();
+
+            String response = new BufferedReader(new InputStreamReader(is))
+                    .lines().reduce("", (a, b) -> a + b);
+
+            if (code != 200) {
+                throw new RuntimeException("Docker Hub login failed: " + response);
+            }
 
             return response.split("\"token\":\"")[1].split("\"")[0];
 
@@ -83,22 +84,28 @@ public class DockerService {
             con.setRequestProperty("Content-Type", "application/json");
             con.setDoOutput(true);
 
-            String body = """
-            {
-              "name": "%s",
-              "is_private": false
-            }
-            """.formatted(repoName);
+            String body = String.format("""
+                {
+                  "name": "%s",
+                  "is_private": false
+                }
+                """, repoName);
 
-            con.getOutputStream().write(body.getBytes(StandardCharsets.UTF_8));
+            try (OutputStream os = con.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
 
             int code = con.getResponseCode();
+            InputStream is = code >= 400 ? con.getErrorStream() : con.getInputStream();
+            String response = new BufferedReader(new InputStreamReader(is))
+                    .lines().reduce("", (a, b) -> a + b);
+
             if (code == 201 || code == 409) {
                 log.info("✅ Docker Hub repository ready: {}", repoName);
                 return;
             }
 
-            throw new RuntimeException("Repo creation failed HTTP " + code);
+            throw new RuntimeException("Repo creation failed HTTP " + code + ": " + response);
 
         } catch (Exception e) {
             throw new RuntimeException("Docker repo creation failed", e);
@@ -150,19 +157,18 @@ public class DockerService {
     }
 
     /* =================================================
-       DOCKER LOGIN (FIXED FOR CONTAINERS)
+       DOCKER LOGIN (MODERN METHOD WITH --password-stdin)
      ================================================= */
     private void dockerLogin() throws Exception {
-        Process process = new ProcessBuilder(
-                "docker", "login",
-                "-u", dockerUsername,
-                "-p", dockerPat
-        )
-                .redirectErrorStream(true)
-                .start();
+        ProcessBuilder pb = new ProcessBuilder("docker", "login", "--username", dockerUsername, "--password-stdin");
+        Process process = pb.start();
 
-        try (BufferedReader reader =
-                     new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream()))) {
+            writer.write(dockerPat);
+            writer.flush();
+        }
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 log.info("🐳 docker login: {}", line);
@@ -184,8 +190,7 @@ public class DockerService {
                 .redirectErrorStream(true)
                 .start();
 
-        try (BufferedReader reader =
-                     new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 log.info("🐳 docker: {}", line);
@@ -203,8 +208,7 @@ public class DockerService {
                 .start();
 
         StringBuilder output = new StringBuilder();
-        try (BufferedReader br =
-                     new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
             String line;
             while ((line = br.readLine()) != null) {
                 output.append(line).append("\n");
@@ -219,7 +223,6 @@ public class DockerService {
        IMAGE DETECTION (NAME OR ID)
      ================================================= */
     private String extractImageFromLoad(String output) {
-
         for (String line : output.split("\n")) {
             if (line.startsWith("Loaded image:")) {
                 return line.replace("Loaded image:", "").trim();
