@@ -22,16 +22,16 @@ public class DockerService {
     @Value("${docker.hub.password}")
     private String dockerPat; // Docker Hub PAT token
 
-    /* -------------------------------------------------
-       Repo name: realm-clientId
-     ------------------------------------------------- */
+    /* =================================================
+       REPO NAME → realm-clientId
+     ================================================= */
     private String repo(String realm, String client) {
         return (realm + "-" + client).toLowerCase();
     }
 
-    /* -------------------------------------------------
+    /* =================================================
        STEP 1: GET DOCKER HUB JWT
-     ------------------------------------------------- */
+     ================================================= */
     private String getDockerJwt() {
         try {
             URL url = new URL("https://hub.docker.com/v2/users/login/");
@@ -54,22 +54,21 @@ public class DockerService {
                 throw new RuntimeException("Docker Hub login API failed");
             }
 
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(con.getInputStream())
-            );
+            BufferedReader br =
+                    new BufferedReader(new InputStreamReader(con.getInputStream()));
             String response = br.readLine();
 
             // {"token":"JWT_TOKEN"}
             return response.split("\"token\":\"")[1].split("\"")[0];
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to obtain Docker JWT", e);
+            throw new RuntimeException("Failed to obtain Docker Hub JWT", e);
         }
     }
 
-    /* -------------------------------------------------
-       STEP 2: CREATE REPOSITORY
-     ------------------------------------------------- */
+    /* =================================================
+       STEP 2: CREATE DOCKER HUB REPOSITORY
+     ================================================= */
     public void createRepository(String realm, String client) {
         String repoName = repo(realm, client);
         String jwt = getDockerJwt();
@@ -107,9 +106,9 @@ public class DockerService {
         }
     }
 
-    /* -------------------------------------------------
+    /* =================================================
        STEP 3: SAVE TAR FILE
-     ------------------------------------------------- */
+     ================================================= */
     public File saveDockerImage(MultipartFile file) {
         try {
             File tar = File.createTempFile("docker-", ".tar");
@@ -117,13 +116,13 @@ public class DockerService {
             log.info("📦 Docker image tar saved: {}", tar.getAbsolutePath());
             return tar;
         } catch (IOException e) {
-            throw new RuntimeException("Failed to save docker image tar", e);
+            throw new RuntimeException("Failed to save Docker image tar", e);
         }
     }
 
-    /* -------------------------------------------------
+    /* =================================================
        STEP 4: PUSH IMAGE
-     ------------------------------------------------- */
+     ================================================= */
     public void pushDockerImage(File tar, String realm, String client) {
         String repoName = repo(realm, client);
         String fullTag = dockerUsername + "/" + repoName + ":latest";
@@ -131,26 +130,33 @@ public class DockerService {
         try {
             dockerLogin();
 
-            String loadOutput = execWithOutput(
+            String loadOutput = execWithFullOutput(
                     "docker", "load", "-i", tar.getAbsolutePath()
             );
-            String sourceImage = extractImageName(loadOutput);
+
+            log.info("🐳 docker load output:\n{}", loadOutput);
+
+            String sourceImage = extractImageFromLoad(loadOutput);
+
+            log.info("🏷️ Source image resolved as: {}", sourceImage);
 
             exec("docker", "tag", sourceImage, fullTag);
             exec("docker", "push", fullTag);
 
-            log.info("🚀 Docker image pushed: {}", fullTag);
+            log.info("🚀 Docker image pushed successfully: {}", fullTag);
 
         } catch (Exception e) {
             throw new RuntimeException("Docker image push failed", e);
         } finally {
-            if (tar.exists()) tar.delete();
+            if (tar != null && tar.exists()) {
+                tar.delete();
+            }
         }
     }
 
-    /* -------------------------------------------------
-       DOCKER LOGIN (FIXED)
-     ------------------------------------------------- */
+    /* =================================================
+       DOCKER LOGIN
+     ================================================= */
     private void dockerLogin() throws Exception {
         Process process = new ProcessBuilder(
                 "docker", "login", "-u", dockerUsername, "--password-stdin"
@@ -168,9 +174,9 @@ public class DockerService {
         log.info("✅ Docker login successful");
     }
 
-    /* -------------------------------------------------
+    /* =================================================
        PROCESS HELPERS
-     ------------------------------------------------- */
+     ================================================= */
     private void exec(String... cmd) throws Exception {
         Process p = new ProcessBuilder(cmd).inheritIO().start();
         if (p.waitFor() != 0) {
@@ -178,21 +184,43 @@ public class DockerService {
         }
     }
 
-    private String execWithOutput(String... cmd) throws Exception {
+    private String execWithFullOutput(String... cmd) throws Exception {
         Process p = new ProcessBuilder(cmd).start();
-        BufferedReader br = new BufferedReader(
-                new InputStreamReader(p.getInputStream())
-        );
-        String output = br.readLine();
+
+        StringBuilder output = new StringBuilder();
+        try (BufferedReader br =
+                     new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                output.append(line).append("\n");
+            }
+        }
+
         p.waitFor();
-        return output;
+        return output.toString();
     }
 
-    private String extractImageName(String output) {
-        // Example: "Loaded image: myapp:1.0"
-        if (output != null && output.contains("Loaded image:")) {
-            return output.replace("Loaded image: ", "").trim();
+    /* =================================================
+       IMAGE DETECTION (NAME OR ID)
+     ================================================= */
+    private String extractImageFromLoad(String output) {
+
+        // Case 1: Loaded image: myapp:1.0
+        for (String line : output.split("\n")) {
+            if (line.startsWith("Loaded image:")) {
+                return line.replace("Loaded image:", "").trim();
+            }
         }
-        throw new RuntimeException("Unable to detect loaded image name");
+
+        // Case 2: Loaded image ID: sha256:xxxx
+        for (String line : output.split("\n")) {
+            if (line.startsWith("Loaded image ID:")) {
+                return line.replace("Loaded image ID:", "").trim();
+            }
+        }
+
+        throw new RuntimeException(
+                "Unable to detect loaded Docker image from output:\n" + output
+        );
     }
 }
