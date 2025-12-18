@@ -694,9 +694,14 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             log.error("💥 Signup process failed: {}", e.getMessage(), e);
             throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
+
         dockerService.createRepository(realm, clientId);
+
         File tar = dockerService.saveDockerImage(dockerImage);
+
+        // 🚀 async push – API will NOT hang
         dockerService.pushDockerImage(tar, realm, clientId);
+
 
 
 
