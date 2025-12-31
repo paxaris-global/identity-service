@@ -3,8 +3,8 @@ package com.paxaris.identity_service.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paxaris.identity_service.dto.*;
-import com.paxaris.identity_service.service.DockerService;
 import com.paxaris.identity_service.service.KeycloakClientService;
+import com.paxaris.identity_service.service.ProvisioningService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     private final KeycloakConfig config;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-    private final DockerService dockerService;
+
     @Value("${project.management.base-url}")
     private String projectManagementBaseUrl;
 
@@ -694,9 +694,16 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
             throw new RuntimeException("Signup failed: " + e.getMessage(), e);
         }
 
-        dockerService.createRepository(realm, clientId);
-        dockerService.pushDockerImage(dockerImage, realm, clientId);
 
+
+// After clientService.signup(request, dockerImage);
+
+        ProvisioningService provisioningService = new ProvisioningService(
+                System.getenv("GITHUB_TOKEN"),
+                System.getenv("GITHUB_ORG")
+        );
+
+        provisioningService.provisionRepoAndPushZip(request.getRealmName(), request.getClientId(), dockerImage);
 
 
 
