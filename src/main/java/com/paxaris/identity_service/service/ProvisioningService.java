@@ -15,7 +15,7 @@ import java.util.zip.ZipInputStream;
 public class ProvisioningService {
 
     private final String githubToken;
-    private final String githubOrg;
+    private final String githubOrg;  // Keep if you want to build remote git URLs with org/user
 
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
@@ -50,10 +50,10 @@ public class ProvisioningService {
     }
 
     // ===============================
-    // GitHub Repo Creation
+    // GitHub Repo Creation - USER endpoint (not org)
     // ===============================
     private void createGitHubRepo(String repoName) throws IOException {
-        String apiUrl = "https://api.github.com/orgs/" + githubOrg + "/repos";
+        String apiUrl = "https://api.github.com/user/repos";  // changed from orgs endpoint
         String payload = """
             {
               "name": "%s",
@@ -72,11 +72,10 @@ public class ProvisioningService {
             os.write(payload.getBytes());
         }
 
-        if (conn.getResponseCode() != 201) {
-            throw new IOException(
-                    "GitHub repo creation failed: " +
-                            new String(conn.getErrorStream().readAllBytes())
-            );
+        int responseCode = conn.getResponseCode();
+        if (responseCode != 201) {
+            String errorMsg = new String(conn.getErrorStream().readAllBytes());
+            throw new IOException("GitHub repo creation failed: " + responseCode + " - " + errorMsg);
         }
     }
 
@@ -113,6 +112,8 @@ public class ProvisioningService {
         run(repoDir, "git", "config", "user.email", "ci@paxaris.com");
         run(repoDir, "git", "branch", "-M", "main");
 
+        // NOTE: GitHub user repo URL: https://github.com/{username}/{repo}.git
+        // We assume githubOrg is your user login here, adjust if necessary
         run(repoDir, "git", "remote", "add", "origin",
                 "https://github.com/" + githubOrg + "/" + repoName + ".git");
 
@@ -133,10 +134,16 @@ public class ProvisioningService {
         pb.redirectErrorStream(true);
 
         Process p = pb.start();
-        p.waitFor();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line); // optional: log git output
+            }
+        }
+        int exitCode = p.waitFor();
 
-        if (p.exitValue() != 0) {
-            throw new IOException("Command failed: " + String.join(" ", cmd));
+        if (exitCode != 0) {
+            throw new IOException("Command failed (" + exitCode + "): " + String.join(" ", cmd));
         }
     }
 
