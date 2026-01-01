@@ -31,7 +31,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     private final KeycloakConfig config;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-
+    private ProvisioningService provisioningService;
     @Value("${project.management.base-url}")
     private String projectManagementBaseUrl;
 
@@ -698,13 +698,11 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
 
 // After clientService.signup(request, dockerImage);
 
-        ProvisioningService provisioningService = new ProvisioningService(
-                System.getenv("GITHUB_TOKEN"),
-                System.getenv("GITHUB_ORG")
+        provisioningService.provisionRepoAndPushZip(
+                request.getRealmName(),
+                request.getClientId(),
+                dockerImage
         );
-
-        provisioningService.provisionRepoAndPushZip(request.getRealmName(), request.getClientId(), dockerImage);
-
 
 
         log.info("🎉 Signup process completed for realm '{}'", realm);
