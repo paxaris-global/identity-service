@@ -31,7 +31,7 @@ public class KeycloakClientServiceImpl implements KeycloakClientService {
     private final KeycloakConfig config;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-    private ProvisioningService provisioningService;
+    private final ProvisioningService provisioningService;
     @Value("${project.management.base-url}")
     private String projectManagementBaseUrl;
 
