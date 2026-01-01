@@ -7,6 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -15,7 +16,7 @@ import java.util.zip.ZipInputStream;
 public class ProvisioningService {
 
     private final String githubToken;
-    private final String githubOrg;  // Keep if you want to build remote git URLs with org/user
+    private final String githubOrg;
 
     public ProvisioningService(
             @Value("${github.token}") String githubToken,
@@ -49,17 +50,15 @@ public class ProvisioningService {
         }
     }
 
-    // ===============================
-    // GitHub Repo Creation - USER endpoint (not org)
-    // ===============================
     private void createGitHubRepo(String repoName) throws IOException {
-        String apiUrl = "https://api.github.com/user/repos";  // changed from orgs endpoint
+        String apiUrl = "https://api.github.com/user/repos"; // or org repos if org
+
         String payload = """
-            {
-              "name": "%s",
-              "private": true
-            }
-            """.formatted(repoName);
+        {
+          "name": "%s",
+          "private": true
+        }
+        """.formatted(repoName);
 
         HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
         conn.setRequestMethod("POST");
@@ -69,19 +68,23 @@ public class ProvisioningService {
         conn.setDoOutput(true);
 
         try (OutputStream os = conn.getOutputStream()) {
-            os.write(payload.getBytes());
+            os.write(payload.getBytes(StandardCharsets.UTF_8));
         }
 
         int responseCode = conn.getResponseCode();
+        System.out.println("GitHub API response code: " + responseCode);
+
         if (responseCode != 201) {
-            String errorMsg = new String(conn.getErrorStream().readAllBytes());
-            throw new IOException("GitHub repo creation failed: " + responseCode + " - " + errorMsg);
+            InputStream errorStream = conn.getErrorStream();
+            String errorMsg = "";
+            if (errorStream != null) {
+                errorMsg = new String(errorStream.readAllBytes(), StandardCharsets.UTF_8);
+            }
+            System.out.println("GitHub API error: " + errorMsg);
+            throw new IOException("GitHub repo creation failed: HTTP " + responseCode + " - " + errorMsg);
         }
     }
 
-    // ===============================
-    // Unzip
-    // ===============================
     private Path unzip(MultipartFile zipFile) throws IOException {
         Path tempDir = Files.createTempDirectory("repo-");
 
@@ -101,9 +104,6 @@ public class ProvisioningService {
         return tempDir;
     }
 
-    // ===============================
-    // Git Init + Push
-    // ===============================
     private void gitInitAddCommitPush(Path repoDir, String repoName)
             throws IOException, InterruptedException {
 
@@ -112,8 +112,6 @@ public class ProvisioningService {
         run(repoDir, "git", "config", "user.email", "ci@paxaris.com");
         run(repoDir, "git", "branch", "-M", "main");
 
-        // NOTE: GitHub user repo URL: https://github.com/{username}/{repo}.git
-        // We assume githubOrg is your user login here, adjust if necessary
         run(repoDir, "git", "remote", "add", "origin",
                 "https://github.com/" + githubOrg + "/" + repoName + ".git");
 
@@ -137,7 +135,7 @@ public class ProvisioningService {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println(line); // optional: log git output
+                System.out.println(line);
             }
         }
         int exitCode = p.waitFor();
